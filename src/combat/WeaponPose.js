@@ -10,17 +10,37 @@ function findBone(root, ...tokens) {
   return result
 }
 
+export function findWeaponHand(root) {
+  let hand = null
+  root?.traverse((child) => {
+    if (hand || !child.isBone) return
+    const name = child.name.toLowerCase().replace(/[^a-z]/g, '')
+    if (name.endsWith('righthand')) hand = child
+  })
+  return hand
+}
+
+export function alignWeaponMount(root, hand, mount, target = new THREE.Vector3()) {
+  if (!root || !hand || !mount) return false
+  root.updateWorldMatrix(true, true)
+  hand.getWorldPosition(target)
+  root.worldToLocal(target)
+  mount.position.copy(target)
+  return true
+}
+
 export function createWeaponHoldAction(root, mixer) {
   const pose = [
-    [findBone(root, 'leftupperarm', 'leftarm'), [-0.34, -0.1, -0.2]],
-    [findBone(root, 'leftforearm', 'leftlowerarm'), [-0.48, 0.05, 0.08]],
-    [findBone(root, 'rightupperarm', 'rightarm'), [-0.4, 0.08, 0.16]],
-    [findBone(root, 'rightforearm', 'rightlowerarm'), [-0.58, -0.04, -0.06]],
+    [findBone(root, 'leftupperarm', 'leftarm'), [-0.72, -0.12, 1.12]],
+    [findBone(root, 'leftforearm', 'leftlowerarm'), [-0.82, 0.08, 0.18]],
+    [findBone(root, 'rightupperarm', 'rightarm'), [-0.78, 0.11, -1.12]],
+    [findBone(root, 'rightforearm', 'rightlowerarm'), [-0.86, -0.07, -0.17]],
     [findBone(root, 'spine2', 'spine1'), [-0.035, 0, 0]],
   ].filter(([bone]) => bone)
 
   const tracks = pose.map(([bone, rotation]) => {
-    const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation, 'XYZ'))
+    const offset = new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation, 'XYZ'))
+    const quaternion = bone.quaternion.clone().multiply(offset)
     return new THREE.QuaternionKeyframeTrack(
       `${bone.name}.quaternion`,
       [0, 1],
@@ -29,11 +49,20 @@ export function createWeaponHoldAction(root, mixer) {
   })
   if (!tracks.length) return null
 
-  const clip = new THREE.AnimationClip('RifleHoldAdditive', 1, tracks, THREE.AdditiveAnimationBlendMode)
+  const clip = new THREE.AnimationClip('RifleHold', 1, tracks)
   const action = mixer.clipAction(clip)
-  action.blendMode = THREE.AdditiveAnimationBlendMode
   action.enabled = true
-  action.setEffectiveWeight(0.68)
+  action.setEffectiveWeight(1)
   action.play()
   return action
+}
+
+export function removeWeaponArmTracks(clip) {
+  const armBones = ['leftarm', 'leftforearm', 'leftlowerarm', 'rightarm', 'rightforearm', 'rightlowerarm']
+  const filtered = clip.clone()
+  filtered.tracks = filtered.tracks.filter((track) => {
+    const name = track.name.toLowerCase().replace(/[^a-z]/g, '')
+    return !armBones.some((bone) => name.includes(bone))
+  })
+  return filtered
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { alignWeaponMount, findWeaponHand } from './WeaponPose.js'
 
 const MAGAZINE_SIZE = 30
 const FIRE_INTERVAL = 0.105
@@ -28,8 +29,9 @@ export class GunController {
     this.tracers = []
     this.weaponMount = new THREE.Group()
     this.weaponMount.name = 'LocalAssaultRifleMount'
-    this.weaponMount.position.set(0.34, 1.12, 0.2)
     this.player.root.add(this.weaponMount)
+    this.handBone = null
+    this.handPosition = new THREE.Vector3()
     this.weaponModel = null
     this.weaponMixer = null
     this.weaponActions = new Map()
@@ -165,8 +167,12 @@ export class GunController {
     this.muzzleLight.intensity = this.muzzleTimer > 0 ? 3.4 : 0
 
     const movement = Math.min(1, this.player.currentSpeed / 7)
-    this.weaponMount.position.x = 0.34 + Math.sin(this.swayTime * 8) * 0.012 * movement
-    this.weaponMount.position.y = 1.12 + Math.abs(Math.cos(this.swayTime * 8)) * 0.01 * movement
+    if (!this.handBone && this.player.model) this.handBone = findWeaponHand(this.player.model)
+    const attached = alignWeaponMount(this.player.root, this.handBone, this.weaponMount, this.handPosition)
+    if (!attached) this.weaponMount.position.set(0.34, 1.12, 0.2)
+    this.weaponMount.position.x += Math.sin(this.swayTime * 8) * 0.008 * movement
+    this.weaponMount.position.y += Math.abs(Math.cos(this.swayTime * 8)) * 0.006 * movement
+    this.weaponMount.position.z += 0.12
     this.weaponMount.rotation.x = -0.06 + this.recoil * 0.11
     this.weaponMount.rotation.z = -0.05 + Math.sin(this.swayTime * 4) * 0.01 * movement
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { InputController } from './InputController.js'
 import { retargetAnimation } from './retargetAnimation.js'
-import { createWeaponHoldAction } from '../combat/WeaponPose.js'
+import { createWeaponHoldAction, removeWeaponArmTracks } from '../combat/WeaponPose.js'
 
 const WALK_SPEED = 3.5
 const RUN_SPEED = 7
@@ -128,7 +128,7 @@ export class PlayerController {
   }
 
   addAction(name, clip) {
-    const action = this.mixer.clipAction(clip)
+    const action = this.mixer.clipAction(removeWeaponArmTracks(clip))
     action.enabled = true
     this.actions.set(name, action)
   }

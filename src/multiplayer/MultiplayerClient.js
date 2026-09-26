@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
-import { createWeaponHoldAction } from '../combat/WeaponPose.js'
+import { alignWeaponMount, createWeaponHoldAction, findWeaponHand } from '../combat/WeaponPose.js'
 
 const SEND_INTERVAL = 1 / 15
 
@@ -240,9 +240,10 @@ export class MultiplayerClient {
     if (!this.weaponTemplate) return
     const mount = new THREE.Group()
     mount.name = 'RemoteAssaultRifleMount'
-    mount.position.set(0.34, 1.12, 0.2)
     mount.rotation.set(-0.06, 0, -0.05)
     mount.add(this.weaponTemplate.clone(true))
+    mount.userData.weaponHand = findWeaponHand(root)
+    mount.userData.handPosition = new THREE.Vector3()
     root.add(mount)
   }
 
@@ -251,6 +252,11 @@ export class MultiplayerClient {
       peer.mixer.update(deltaTime)
       peer.root.position.lerp(peer.targetPosition, 1 - Math.exp(-14 * deltaTime))
       peer.root.quaternion.slerp(peer.targetQuaternion, 1 - Math.exp(-14 * deltaTime))
+      const weaponMount = peer.root.getObjectByName('RemoteAssaultRifleMount')
+      if (weaponMount) {
+        alignWeaponMount(peer.root, weaponMount.userData.weaponHand, weaponMount, weaponMount.userData.handPosition)
+        weaponMount.position.z += 0.12
+      }
     }
     this.sendTimer += deltaTime
     if (!this.ready || this.sendTimer < SEND_INTERVAL || this.socket?.readyState !== WebSocket.OPEN) return
