@@ -87,7 +87,9 @@ export class OfficeMap {
       f.box(column, [0.68, 0.13, 0.68], [0, 0.065, 0], this.trimMaterial)
       column.position.set(x, 0, z)
       this.group.add(column)
-      this.registerCollider(column, { blocksMonster: true })
+      // Columns block players, but the Rampage can tear through them.
+      // The perimeter collision envelope remains the permanent boundary.
+      this.registerCollider(column, { breakable: true })
     }
   }
 
@@ -358,8 +360,8 @@ export class OfficeMap {
   smashWalls(position, radius = 2.4) {
     let smashed = false
     for (const obstacle of this.nearbyColliders(position, radius)) {
-      // Perimeter walls and structural columns survive. Everything else becomes
-      // destructible cover: glass, cubicles, desks, chairs, props, and counters.
+      // The perimeter shell survives. Interior columns, glass, cubicles,
+      // furniture, props, and counters become destructible cover.
       if (obstacle.blocksMonster || obstacle.destroyed || obstacle.box.distanceToPoint(position) > radius) continue
       this.destroyWall(obstacle, position); smashed = true
     }

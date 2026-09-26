@@ -31,11 +31,15 @@ export function alignWeaponMount(root, hand, mount, target = new THREE.Vector3()
 
 export function createWeaponHoldAction(root, mixer) {
   const pose = [
-    [findBone(root, 'leftupperarm', 'leftarm'), [-0.72, -0.12, 1.12]],
-    [findBone(root, 'leftforearm', 'leftlowerarm'), [-0.82, 0.08, 0.18]],
-    [findBone(root, 'rightupperarm', 'rightarm'), [-0.78, 0.11, -1.12]],
-    [findBone(root, 'rightforearm', 'rightlowerarm'), [-0.86, -0.07, -0.17]],
-    [findBone(root, 'spine2', 'spine1'), [-0.035, 0, 0]],
+    // Keep the upper-body pose independent from locomotion. Small wrist and
+    // spine offsets make the existing Mixamo rig grip the rifle naturally.
+    [findBone(root, 'leftupperarm', 'leftarm'), [-0.72, -0.12, 0.58]],
+    [findBone(root, 'leftforearm', 'leftlowerarm'), [-1.05, 0.08, 0.22]],
+    [findBone(root, 'lefthand'), [-0.04, 0.1, -0.04]],
+    [findBone(root, 'rightupperarm', 'rightarm'), [-0.76, 0.11, -0.58]],
+    [findBone(root, 'rightforearm', 'rightlowerarm'), [-1.02, -0.07, -0.2]],
+    [findBone(root, 'righthand'), [0.01, -0.05, 0.02]],
+    [findBone(root, 'spine2', 'spine1'), [-0.045, 0.025, 0]],
   ].filter(([bone]) => bone)
 
   const tracks = pose.map(([bone, rotation]) => {
@@ -58,7 +62,10 @@ export function createWeaponHoldAction(root, mixer) {
 }
 
 export function removeWeaponArmTracks(clip) {
-  const armBones = ['leftarm', 'leftforearm', 'leftlowerarm', 'rightarm', 'rightforearm', 'rightlowerarm']
+  const armBones = [
+    'leftshoulder', 'leftarm', 'leftforearm', 'leftlowerarm', 'lefthand',
+    'rightshoulder', 'rightarm', 'rightforearm', 'rightlowerarm', 'righthand',
+  ]
   const filtered = clip.clone()
   filtered.tracks = filtered.tracks.filter((track) => {
     const name = track.name.toLowerCase().replace(/[^a-z]/g, '')

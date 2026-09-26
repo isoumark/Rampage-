@@ -170,11 +170,12 @@ export class GunController {
     if (!this.handBone && this.player.model) this.handBone = findWeaponHand(this.player.model)
     const attached = alignWeaponMount(this.player.root, this.handBone, this.weaponMount, this.handPosition)
     if (!attached) this.weaponMount.position.set(0.34, 1.12, 0.2)
-    this.weaponMount.position.x += Math.sin(this.swayTime * 8) * 0.008 * movement
-    this.weaponMount.position.y += Math.abs(Math.cos(this.swayTime * 8)) * 0.006 * movement
-    this.weaponMount.position.z += 0.12
-    this.weaponMount.rotation.x = -0.06 + this.recoil * 0.11
-    this.weaponMount.rotation.z = -0.05 + Math.sin(this.swayTime * 4) * 0.01 * movement
+    this.weaponMount.position.x += 0.025 + Math.sin(this.swayTime * 8) * 0.004 * movement
+    this.weaponMount.position.y += 0.025 + Math.abs(Math.cos(this.swayTime * 8)) * 0.003 * movement
+    this.weaponMount.position.z += 0.18 - this.recoil * 0.025
+    this.weaponMount.rotation.x = -0.085 + this.recoil * 0.075
+    this.weaponMount.rotation.y = -0.035
+    this.weaponMount.rotation.z = -0.035 + Math.sin(this.swayTime * 4) * 0.006 * movement
 
     if (this.reloadTimer > 0) {
       const previous = this.reloadTimer

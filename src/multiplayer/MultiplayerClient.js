@@ -255,7 +255,10 @@ export class MultiplayerClient {
       const weaponMount = peer.root.getObjectByName('RemoteAssaultRifleMount')
       if (weaponMount) {
         alignWeaponMount(peer.root, weaponMount.userData.weaponHand, weaponMount, weaponMount.userData.handPosition)
-        weaponMount.position.z += 0.12
+        weaponMount.position.x += 0.025
+        weaponMount.position.y += 0.025
+        weaponMount.position.z += 0.18
+        weaponMount.rotation.set(-0.085, -0.035, -0.035)
       }
     }
     this.sendTimer += deltaTime
