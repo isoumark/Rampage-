@@ -6,6 +6,9 @@ const SEND_INTERVAL = 1 / 15
 function getMultiplayerUrl() {
   const configuredUrl = import.meta.env.VITE_MULTIPLAYER_URL?.trim()
   if (configuredUrl) return configuredUrl.replace(/\/$/, '')
+  if (location.hostname.endsWith('.vercel.app')) {
+    return 'wss://survive-the-rampage-multiplayer.onrender.com'
+  }
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${location.host}`
 }
