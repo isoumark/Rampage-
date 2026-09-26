@@ -53,8 +53,10 @@ const sounds = new SoundManager()
 
 const player = new PlayerController({
   scene,
-  loader: new FBXLoader(),
-  modelUrl: '/models/player.fbx',
+  modelLoader: new GLTFLoader(),
+  animationLoader: new FBXLoader(),
+  modelUrl: '/models/player.glb',
+  modelScale: 100,
   animationUrls: {
     walk: '/models/animations/walk.fbx',
     run: '/models/animations/run.fbx',

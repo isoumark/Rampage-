@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import { InputController } from './InputController.js'
 import { retargetAnimation } from './retargetAnimation.js'
 
-const PLAYER_SCALE = 0.01
 const WALK_SPEED = 3.5
 const RUN_SPEED = 7
 const TURN_SPEED = 12
@@ -13,8 +12,10 @@ const DECELERATION = 18
 export class PlayerController {
   constructor({
     scene,
-    loader,
+    modelLoader,
+    animationLoader,
     modelUrl,
+    modelScale = 1,
     animationUrls,
     onProgress,
     resolveMovement,
@@ -22,8 +23,10 @@ export class PlayerController {
     onRespawn,
   }) {
     this.scene = scene
-    this.loader = loader
+    this.modelLoader = modelLoader
+    this.animationLoader = animationLoader
     this.modelUrl = modelUrl
+    this.modelScale = modelScale
     this.animationUrls = animationUrls
     this.onProgress = onProgress
     this.resolveMovement = resolveMovement
@@ -57,14 +60,14 @@ export class PlayerController {
   }
 
   async load() {
-    const model = await this.loadFbx(this.modelUrl, (event) => {
+    const loadedModel = await this.loadAsset(this.modelLoader, this.modelUrl, (event) => {
       if (event.total && this.onProgress) {
         this.onProgress(Math.round((event.loaded / event.total) * 100))
       }
     })
 
-    this.model = model
-    this.model.scale.setScalar(PLAYER_SCALE)
+    this.model = loadedModel.scene ?? loadedModel
+    this.model.scale.setScalar(this.modelScale)
     this.model.updateMatrixWorld(true)
     this.placeModelOnGround()
     this.model.traverse((child) => {
@@ -75,11 +78,11 @@ export class PlayerController {
     this.root.add(this.model)
 
     this.mixer = new THREE.AnimationMixer(this.model)
-    const embeddedClips = model.animations ?? []
+    const embeddedClips = loadedModel.animations ?? this.model.animations ?? []
     const animationResults = await Promise.all(
       Object.entries(this.animationUrls).map(async ([state, url]) => {
         try {
-          const animationFbx = await this.loadFbx(url)
+          const animationFbx = await this.loadAsset(this.animationLoader, url)
           const sourceClip = animationFbx.animations?.[0]
           const clip = sourceClip ? retargetAnimation(animationFbx, this.model, sourceClip) : null
           if (!clip) throw new Error(`No animation clip was found in ${url}`)
@@ -100,7 +103,7 @@ export class PlayerController {
 
     if (!this.actions.has('idle') && embeddedClips[0]) {
       this.addAction('idle', embeddedClips[0])
-      console.info('[Player] Using the animation embedded in player.fbx as Idle.')
+      console.info('[Player] Using the animation embedded in the player model as Idle.')
     }
 
     this.setAnimation('idle')
@@ -109,9 +112,9 @@ export class PlayerController {
     console.info(`[Player] Character loaded successfully. Animations: ${[...this.actions.keys()].join(', ')}`)
   }
 
-  loadFbx(url, onProgress) {
+  loadAsset(loader, url, onProgress) {
     return new Promise((resolve, reject) => {
-      this.loader.load(url, resolve, onProgress, reject)
+      loader.load(url, resolve, onProgress, reject)
     })
   }
 
