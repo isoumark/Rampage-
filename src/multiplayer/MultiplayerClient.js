@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
-import { applyWeaponHoldPose } from '../combat/WeaponPose.js'
+import { createWeaponHoldAction } from '../combat/WeaponPose.js'
 
 const SEND_INTERVAL = 1 / 15
 
@@ -182,6 +182,7 @@ export class MultiplayerClient {
       activeAction: null,
       targetPosition: new THREE.Vector3(),
       targetQuaternion: new THREE.Quaternion(),
+      weaponHoldAction: createWeaponHoldAction(model, mixer),
     }
     this.peers.set(player.id, peer)
     this.setPeerAnimation(peer, 'idle')
@@ -248,7 +249,6 @@ export class MultiplayerClient {
   update(deltaTime) {
     for (const peer of this.peers.values()) {
       peer.mixer.update(deltaTime)
-      applyWeaponHoldPose(peer.root, 0.86)
       peer.root.position.lerp(peer.targetPosition, 1 - Math.exp(-14 * deltaTime))
       peer.root.quaternion.slerp(peer.targetQuaternion, 1 - Math.exp(-14 * deltaTime))
     }

@@ -35,14 +35,8 @@ export class GunController {
     this.weaponActions = new Map()
     this.loadWeapon()
 
-    this.muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.085, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }),
-    )
-    this.muzzleFlash.position.set(0, 0.03, 1.02)
-    this.weaponMount.add(this.muzzleFlash)
     this.muzzleLight = new THREE.PointLight(0xffa83d, 0, 4)
-    this.muzzleLight.position.copy(this.muzzleFlash.position)
+    this.muzzleLight.position.set(0, 0.03, 1.02)
     this.weaponMount.add(this.muzzleLight)
 
     this.onMouseDown = (event) => {
@@ -168,8 +162,6 @@ export class GunController {
     this.swayTime += deltaTime
     this.recoil = THREE.MathUtils.damp(this.recoil, 0, 16, deltaTime)
     this.muzzleTimer = Math.max(0, this.muzzleTimer - deltaTime)
-    this.muzzleFlash.material.opacity = this.muzzleTimer > 0 ? 1 : 0
-    this.muzzleFlash.scale.setScalar(0.7 + Math.random() * 0.7)
     this.muzzleLight.intensity = this.muzzleTimer > 0 ? 3.4 : 0
 
     const movement = Math.min(1, this.player.currentSpeed / 7)

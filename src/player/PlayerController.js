@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { InputController } from './InputController.js'
 import { retargetAnimation } from './retargetAnimation.js'
-import { applyWeaponHoldPose } from '../combat/WeaponPose.js'
+import { createWeaponHoldAction } from '../combat/WeaponPose.js'
 
 const WALK_SPEED = 3.5
 const RUN_SPEED = 7
@@ -108,6 +108,7 @@ export class PlayerController {
     }
 
     this.setAnimation('idle')
+    this.weaponHoldAction = createWeaponHoldAction(this.model, this.mixer)
     this.loaded = true
     this.root.visible = this.spawned
     console.info(`[Player] Character loaded successfully. Animations: ${[...this.actions.keys()].join(', ')}`)
@@ -179,7 +180,6 @@ export class PlayerController {
 
   update(deltaTime, cameraYaw) {
     this.mixer?.update(deltaTime)
-    if (this.model) applyWeaponHoldPose(this.model, 0.86)
     if (!this.loaded || !this.spawned) return
 
     this.invulnerability = Math.max(0, this.invulnerability - deltaTime)
