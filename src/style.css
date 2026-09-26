@@ -1,0 +1,380 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: white;
+  background: #111;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  pointer-events: none;
+  text-shadow: 0 2px 5px rgb(0 0 0 / 80%);
+  opacity: 0.18;
+  transition: opacity 300ms;
+}
+
+body.spawned #hud { opacity: 1; }
+
+#mission-panel {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  padding-left: 12px;
+  border-left: 3px solid #8ee04d;
+}
+
+.game-title {
+  color: #f4f7f1;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+#loading-status {
+  margin-top: 4px;
+  color: #9ba6a8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.objective {
+  margin-top: 8px;
+  color: #d7ddde;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.objective span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #8ee04d;
+  box-shadow: 0 0 8px #8ee04d;
+}
+
+#danger {
+  position: absolute;
+  top: 86px;
+  left: 50%;
+  color: #ff695f;
+  font-size: clamp(13px, 1.6vw, 18px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
+  transition: opacity 180ms, transform 180ms;
+  animation: danger-pulse 0.55s infinite alternate;
+}
+
+#danger.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+#reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  opacity: 0.45;
+}
+
+#reticle::before,
+#reticle::after,
+#reticle i::before,
+#reticle i::after {
+  content: '';
+  position: absolute;
+  background: #e8eeee;
+}
+
+#reticle::before { top: 0; left: 7px; width: 1px; height: 5px; }
+#reticle::after { bottom: 0; left: 7px; width: 1px; height: 5px; }
+#reticle i::before { top: 7px; left: 0; width: 5px; height: 1px; }
+#reticle i::after { top: 7px; right: 0; width: 5px; height: 1px; }
+
+#health-panel {
+  position: absolute;
+  left: 24px;
+  bottom: 64px;
+  width: min(320px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 2px;
+  background: linear-gradient(100deg, rgb(7 12 14 / 88%), rgb(7 12 14 / 55%));
+  clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 0 100%);
+}
+
+.health-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+#health-track {
+  height: 15px;
+  overflow: hidden;
+  border: 2px solid #171b1d;
+  background: #2a3033;
+  transform: skewX(-8deg);
+}
+
+#health-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #69be3c, #a2e85c);
+  transition: width 180ms ease-out;
+}
+
+#health-fill.critical {
+  background: linear-gradient(90deg, #b61616, #ff4a32);
+  animation: health-pulse 0.45s infinite alternate;
+}
+
+#death-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #ff342b;
+  background: rgb(20 0 0 / 72%);
+  font-size: clamp(30px, 7vw, 78px);
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms;
+  text-shadow: 0 0 28px #f00;
+}
+
+#spawn-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(30px, 8vw, 120px);
+  background:
+    linear-gradient(90deg, rgb(4 8 10 / 94%) 0%, rgb(4 8 10 / 72%) 48%, rgb(4 8 10 / 12%) 100%),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgb(255 255 255 / 1.5%) 3px 4px);
+  transition: opacity 350ms, visibility 350ms;
+}
+
+body.spawned #spawn-menu {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-kicker {
+  color: #9ee85a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+
+#spawn-menu h1 {
+  margin: 13px 0 15px;
+  font-size: clamp(48px, 8vw, 112px);
+  line-height: 0.83;
+  letter-spacing: -0.055em;
+}
+
+#spawn-menu h1 span { color: #80d447; }
+
+#spawn-menu p {
+  max-width: 520px;
+  color: #aab3b5;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+#spawn-button {
+  width: 230px;
+  margin-top: 24px;
+  padding: 15px 20px;
+  border: 1px solid #a8f16c;
+  color: #081006;
+  background: #8cdd4f;
+  font: 900 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+
+#spawn-button:hover:not(:disabled) { background: #b1f27e; }
+#spawn-button:disabled { cursor: wait; filter: grayscale(1); opacity: 0.45; }
+
+#spawn-menu small {
+  margin-top: 15px;
+  color: #677174;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+#chat-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 48px;
+  z-index: 12;
+  width: min(330px, calc(100vw - 44px));
+  color: #cfd7d8;
+  background: rgb(5 10 12 / 76%);
+  border: 1px solid rgb(255 255 255 / 10%);
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.72;
+  transition: opacity 180ms;
+}
+
+#chat-panel.collapsed #chat-messages,
+#chat-panel.collapsed #chat-form { display: none; }
+
+#chat-panel.collapsed { width: 230px; }
+
+#chat-panel:focus-within,
+#chat-panel:hover { opacity: 1; }
+
+.chat-tabs { display: flex; border-bottom: 1px solid rgb(255 255 255 / 9%); }
+.chat-tabs button {
+  flex: 1;
+  padding: 8px;
+  border: 0;
+  color: #717c7f;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.chat-tabs #chat-toggle { flex: 0 0 34px; color: #aab4b5; }
+.chat-tabs button.active { color: #9ee85a; background: rgb(128 212 71 / 8%); }
+
+#chat-messages {
+  height: 100px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+#chat-messages b { color: #8fd957; font-weight: 800; }
+
+#chat-form { border-top: 1px solid rgb(255 255 255 / 9%); }
+#chat-input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  outline: 0;
+  color: white;
+  background: rgb(255 255 255 / 4%);
+  font: inherit;
+}
+
+body:not(.spawned) #chat-panel {
+  right: clamp(30px, 8vw, 120px);
+  bottom: clamp(30px, 8vw, 100px);
+  z-index: 25;
+}
+
+#damage-flash,
+#vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+#vignette {
+  background: radial-gradient(circle at center, transparent 52%, rgb(0 0 0 / 46%) 100%);
+}
+
+#damage-flash {
+  opacity: 0;
+  background: radial-gradient(circle at center, transparent 20%, rgb(190 0 0 / 58%) 100%);
+}
+
+body.damaged #damage-flash { animation: damage-hit 260ms ease-out; }
+
+@media (max-width: 800px) {
+  body:not(.spawned) #chat-panel { display: none; }
+  body.spawned #chat-panel {
+    top: 108px;
+    right: 16px;
+    bottom: auto;
+    width: min(280px, calc(100vw - 32px));
+  }
+  #spawn-menu { padding: 28px; }
+  #spawn-menu h1 { font-size: clamp(46px, 15vw, 76px); }
+  #health-panel { bottom: 24px; }
+  .controls { display: none; }
+}
+
+#death-screen.visible { opacity: 1; }
+
+#death-screen small {
+  margin-top: 14px;
+  color: white;
+  font-size: 16px;
+}
+
+#loading-status.error {
+  color: #ffb4b4;
+}
+
+.controls {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  color: #d9e8f3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  opacity: 0.68;
+}
+
+.controls b { color: #a2e85c; }
+
+@keyframes danger-pulse {
+  to { text-shadow: 0 0 22px #ff1e13; }
+}
+
+@keyframes health-pulse {
+  to { filter: brightness(1.7); }
+}
+
+@keyframes damage-hit {
+  0% { opacity: 0.9; }
+  100% { opacity: 0; }
+}

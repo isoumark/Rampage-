@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Survive The Rampage</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <div id="mission-panel">
+        <div class="game-title">SURVIVE THE RAMPAGE</div>
+        <div id="loading-status">LOADING PLAYER</div>
+        <div class="objective"><span></span>SURVIVE · KEEP MOVING</div>
+      </div>
+      <div id="danger">THE RAGE IS CLOSE</div>
+      <div id="reticle"><i></i></div>
+      <div id="health-panel">
+        <div class="health-label"><span>HEALTH</span><span id="health-text">100 / 100</span></div>
+        <div id="health-track"><div id="health-fill"></div></div>
+      </div>
+      <div class="controls"><b>WASD</b> MOVE <b>SHIFT</b> SPRINT <b>MOUSE</b> LOOK</div>
+    </div>
+    <div id="death-screen">
+      <div>YOU WERE CRUSHED</div>
+      <small>Respawning…</small>
+    </div>
+    <section id="chat-panel">
+      <div class="chat-tabs">
+        <button class="active" data-room="LOBBY">LOBBY</button>
+        <button data-room="SURVIVORS">SURVIVORS</button>
+        <button id="chat-toggle" aria-label="Toggle chat">−</button>
+      </div>
+      <div id="chat-messages"></div>
+      <form id="chat-form">
+        <input id="chat-input" maxlength="180" autocomplete="off" placeholder="SEND MESSAGE…  / OPEN COMMS" />
+      </form>
+    </section>
+    <div id="damage-flash"></div>
+    <div id="vignette"></div>
+    <div id="spawn-menu">
+      <div class="menu-kicker">TACTICAL SURVIVAL PROTOCOL</div>
+      <h1>SURVIVE<br /><span>THE RAMPAGE</span></h1>
+      <p>OUTRUN THE MUTANT. USE THE OFFICE. NEVER STOP MOVING.</p>
+      <button id="spawn-button" disabled>DEPLOY</button>
+      <small>WASD MOVE · SHIFT SPRINT · MOUSE LOOK</small>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

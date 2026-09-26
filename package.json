@@ -1,0 +1,19 @@
+{
+  "name": "survivetherage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "build": "vite build",
+    "preview": "node server.mjs --production",
+    "start": "node server.mjs --production"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.21.3"
+  }
+}
