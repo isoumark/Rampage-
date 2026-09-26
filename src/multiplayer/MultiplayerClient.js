@@ -26,6 +26,8 @@ export class MultiplayerClient {
     this.statusListeners = new Set()
     this.reconnectTimer = null
     this.lastStatus = 'CONNECTING'
+    this.monster = null
+    this.monsterHostId = null
     this.connect()
   }
 
@@ -51,6 +53,8 @@ export class MultiplayerClient {
     if (message.type === 'welcome') {
       this.localId = message.id
       this.localName = message.name
+      this.monsterHostId = message.monsterHostId
+      this.monster?.applyNetworkState(message.monsterState, true)
       for (const player of message.players ?? []) this.addOrQueuePeer(player)
       this.emitStatus('ONLINE')
       return
@@ -72,6 +76,20 @@ export class MultiplayerClient {
     if (message.type === 'chat') {
       for (const listener of this.chatListeners) listener(message)
     }
+    if (message.type === 'monster-host') {
+      this.monsterHostId = message.id
+      this.monster?.applyNetworkState(message.state, true)
+      return
+    }
+    if (message.type === 'monster-state') this.monster?.applyNetworkState(message.state)
+  }
+
+  attachMonster(monster) {
+    this.monster = monster
+  }
+
+  get isMonsterHost() {
+    return Boolean(this.localId && this.localId === this.monsterHostId)
   }
 
   addOrQueuePeer(player) {
@@ -139,12 +157,13 @@ export class MultiplayerClient {
     canvas.width = 384
     canvas.height = 72
     const context = canvas.getContext('2d')
-    context.fillStyle = 'rgba(10, 16, 19, .82)'
-    context.fillRect(0, 0, canvas.width, canvas.height)
     context.fillStyle = '#78e98d'
     context.font = '700 28px monospace'
     context.textAlign = 'center'
     context.textBaseline = 'middle'
+    context.lineWidth = 7
+    context.strokeStyle = 'rgba(0, 0, 0, .9)'
+    context.strokeText(String(name).slice(0, 24), canvas.width / 2, canvas.height / 2)
     context.fillText(String(name).slice(0, 24), canvas.width / 2, canvas.height / 2)
     const texture = new THREE.CanvasTexture(canvas)
     texture.colorSpace = THREE.SRGBColorSpace
@@ -192,6 +211,7 @@ export class MultiplayerClient {
         health: this.localPlayer.health,
       },
     })
+    if (this.isMonsterHost && this.monster) this.send({ type: 'monster-state', state: this.monster.getNetworkState() })
   }
 
   sendChat(room, text) {

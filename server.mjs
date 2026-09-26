@@ -9,6 +9,8 @@ const isProduction = process.argv.includes('--production')
 const root = process.cwd()
 const distRoot = resolve(root, 'dist')
 const clients = new Map()
+let monsterHostId = null
+let monsterState = null
 
 const mimeTypes = {
   '.css': 'text/css',
@@ -77,6 +79,21 @@ function safeState(value) {
   }
 }
 
+function safeMonsterState(value) {
+  if (!value || !Array.isArray(value.position) || value.position.length !== 3) return null
+  if (!value.position.every(Number.isFinite) || !Number.isFinite(value.rotationY)) return null
+  return {
+    position: value.position.map((entry, index) => Math.max(index === 1 ? 0 : -55, Math.min(index === 1 ? 6 : 55, entry))),
+    rotationY: value.rotationY,
+    animation: ['idle', 'run', 'attack'].includes(value.animation) ? value.animation : 'idle',
+  }
+}
+
+function electMonsterHost() {
+  monsterHostId = clients.values().next().value?.id ?? null
+  broadcast({ type: 'monster-host', id: monsterHostId, state: monsterState })
+}
+
 webSockets.on('connection', (socket) => {
   const id = randomUUID().slice(0, 8)
   const player = {
@@ -86,11 +103,14 @@ webSockets.on('connection', (socket) => {
     lastChatAt: 0,
   }
   clients.set(socket, player)
+  if (!monsterHostId) monsterHostId = id
   socket.send(JSON.stringify({
     type: 'welcome',
     id,
     name: player.name,
     players: [...clients.values()].filter((entry) => entry !== player).map(({ id: peerId, name, state }) => ({ id: peerId, name, state })),
+    monsterHostId,
+    monsterState,
   }))
   broadcast({ type: 'player-joined', player: { id, name: player.name, state: null } }, socket)
 
@@ -116,12 +136,20 @@ webSockets.on('connection', (socket) => {
       const room = ['LOBBY', 'SURVIVORS'].includes(message.room) ? message.room : 'LOBBY'
       if (!text) return
       broadcast({ type: 'chat', room, author: player.name, text })
+      return
+    }
+    if (message?.type === 'monster-state' && player.id === monsterHostId) {
+      const state = safeMonsterState(message.state)
+      if (!state) return
+      monsterState = state
+      broadcast({ type: 'monster-state', state }, socket)
     }
   })
 
   socket.on('close', () => {
     clients.delete(socket)
     broadcast({ type: 'player-left', id })
+    if (id === monsterHostId) electMonsterHost()
   })
 })
 

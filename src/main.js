@@ -66,7 +66,7 @@ const player = new PlayerController({
     return officeMap.resolvePlayerMovement(position, previousPosition)
   },
   onHealthChanged: (health, maxHealth) => hud.setHealth(health, maxHealth),
-  onRespawn: () => monster.reset(),
+  onRespawn: () => {},
 })
 
 const multiplayer = new MultiplayerClient({ scene, localPlayer: player })
@@ -96,6 +96,7 @@ const monster = new RageMonster({
     sounds.smash()
   },
 })
+multiplayer.attachMonster(monster)
 
 hud.setHealth(player.health, player.maxHealth)
 
@@ -113,7 +114,7 @@ player
 
 document.querySelector('#spawn-button').addEventListener('click', () => {
   if (!player.spawn()) return
-  monster.reset()
+  if (multiplayer.isMonsterHost) monster.reset()
   document.body.classList.add('spawned')
 })
 
@@ -125,7 +126,8 @@ function animate() {
   timer.update()
   const deltaTime = Math.min(timer.getDelta(), 0.05)
   player.update(deltaTime, thirdPersonCamera.yaw)
-  monster.update(deltaTime, player.spawned && player.isAlive)
+  if (multiplayer.isMonsterHost) monster.update(deltaTime, player.spawned && player.isAlive)
+  else monster.updateRemote(deltaTime)
   officeMap.update(deltaTime)
   multiplayer.update(deltaTime)
   const monsterDistance = player.root.position.distanceTo(monster.root.position)

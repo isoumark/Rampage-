@@ -32,6 +32,9 @@ export class RageMonster {
     this.mixer = null
     this.actions = new Map()
     this.activeAction = null
+    this.animationState = 'idle'
+    this.networkPosition = this.spawnPoint.clone()
+    this.networkQuaternion = new THREE.Quaternion()
     this.animatedModel = null
     this.buildPlaceholder()
     scene.add(this.root)
@@ -116,6 +119,7 @@ export class RageMonster {
   }
 
   setAnimation(name, restart = false) {
+    this.animationState = name
     const choices = {
       idle: ['idle'],
       run: ['run', 'running'],
@@ -243,6 +247,32 @@ export class RageMonster {
       this.attackAnimationTimer = 0.55
       this.setAnimation('attack', true)
       if (this.placeholder.visible) this.rightArm.rotation.x = -2.3
+      this.onAttack(ATTACK_DAMAGE)
+    }
+  }
+
+  getNetworkState() {
+    return { position: this.root.position.toArray(), rotationY: this.root.rotation.y, animation: this.animationState }
+  }
+
+  applyNetworkState(state, immediate = false) {
+    if (!state) return
+    this.networkPosition.fromArray(state.position)
+    this.networkQuaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, state.rotationY)
+    this.setAnimation(state.animation)
+    if (immediate) {
+      this.root.position.copy(this.networkPosition)
+      this.root.quaternion.copy(this.networkQuaternion)
+    }
+  }
+
+  updateRemote(deltaTime) {
+    this.mixer?.update(deltaTime)
+    this.attackTimer -= deltaTime
+    this.root.position.lerp(this.networkPosition, 1 - Math.exp(-14 * deltaTime))
+    this.root.quaternion.slerp(this.networkQuaternion, 1 - Math.exp(-14 * deltaTime))
+    if (this.target.position.distanceTo(this.root.position) <= ATTACK_RANGE && this.attackTimer <= 0) {
+      this.attackTimer = ATTACK_COOLDOWN
       this.onAttack(ATTACK_DAMAGE)
     }
   }
