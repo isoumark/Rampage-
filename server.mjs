@@ -11,6 +11,11 @@ const distRoot = resolve(root, 'dist')
 const clients = new Map()
 let monsterHostId = null
 let monsterState = null
+const MONSTER_MAX_HEALTH = 12000
+const BASE_WEAPON_DAMAGE = 32
+const CREATOR_FEE_DAMAGE_MULTIPLIER = 1 // Future memecoin integration updates this server-side.
+let monsterHealth = MONSTER_MAX_HEALTH
+let monsterResetTimer = null
 
 const mimeTypes = {
   '.css': 'text/css',
@@ -90,7 +95,10 @@ function safeMonsterState(value) {
 }
 
 function electMonsterHost() {
-  monsterHostId = clients.values().next().value?.id ?? null
+  const activePlayer = [...clients.values()].find((entry) => entry.state?.spawned && entry.state.health > 0)
+  const nextHostId = activePlayer?.id ?? null
+  if (nextHostId === monsterHostId) return
+  monsterHostId = nextHostId
   broadcast({ type: 'monster-host', id: monsterHostId, state: monsterState })
 }
 
@@ -101,9 +109,9 @@ webSockets.on('connection', (socket) => {
     name: `SURVIVOR-${Math.floor(100 + Math.random() * 900)}`,
     state: null,
     lastChatAt: 0,
+    lastShotAt: 0,
   }
   clients.set(socket, player)
-  if (!monsterHostId) monsterHostId = id
   socket.send(JSON.stringify({
     type: 'welcome',
     id,
@@ -111,6 +119,8 @@ webSockets.on('connection', (socket) => {
     players: [...clients.values()].filter((entry) => entry !== player).map(({ id: peerId, name, state }) => ({ id: peerId, name, state })),
     monsterHostId,
     monsterState,
+    monsterHealth,
+    monsterMaxHealth: MONSTER_MAX_HEALTH,
   }))
   broadcast({ type: 'player-joined', player: { id, name: player.name, state: null } }, socket)
 
@@ -126,6 +136,7 @@ webSockets.on('connection', (socket) => {
       if (!state) return
       player.state = state
       broadcast({ type: 'state', id, name: player.name, state }, socket)
+      if (!monsterHostId || player.id === monsterHostId && (!state.spawned || state.health <= 0)) electMonsterHost()
       return
     }
     if (message?.type === 'chat') {
@@ -143,13 +154,47 @@ webSockets.on('connection', (socket) => {
       if (!state) return
       monsterState = state
       broadcast({ type: 'monster-state', state }, socket)
+      return
+    }
+    if (message?.type === 'monster-hit') {
+      const now = Date.now()
+      if (!player.state?.spawned || player.state.health <= 0 || now - player.lastShotAt < 90 || monsterHealth <= 0) return
+      player.lastShotAt = now
+      const origin = message.origin
+      const direction = message.direction
+      if (!Array.isArray(origin) || !Array.isArray(direction) || origin.length !== 3 || direction.length !== 3) return
+      if (![...origin, ...direction].every(Number.isFinite) || !monsterState?.position) return
+      const playerPosition = player.state.position
+      const originDistance = Math.hypot(origin[0] - playerPosition[0], origin[1] - playerPosition[1], origin[2] - playerPosition[2])
+      const directionLength = Math.hypot(...direction)
+      if (originDistance > 4 || directionLength < 0.9 || directionLength > 1.1) return
+      const toMonster = monsterState.position.map((value, index) => value - origin[index])
+      const alongRay = toMonster.reduce((sum, value, index) => sum + value * direction[index], 0)
+      if (alongRay < 0 || alongRay > 90) return
+      const missDistance = Math.hypot(...toMonster.map((value, index) => value - direction[index] * alongRay))
+      if (missDistance > 2.25) return
+      const damage = Math.round(BASE_WEAPON_DAMAGE * CREATOR_FEE_DAMAGE_MULTIPLIER)
+      monsterHealth = Math.max(0, monsterHealth - damage)
+      broadcast({ type: 'monster-health', health: monsterHealth, maxHealth: MONSTER_MAX_HEALTH, damage, attackerId: id })
+      if (monsterHealth === 0 && !monsterResetTimer) {
+        broadcast({ type: 'monster-defeated', attackerId: id })
+        monsterResetTimer = setTimeout(() => {
+          monsterHealth = MONSTER_MAX_HEALTH
+          monsterState = { position: [0, 0, -26], rotationY: 0, animation: 'run' }
+          monsterResetTimer = null
+          broadcast({ type: 'monster-reset', state: monsterState, health: monsterHealth, maxHealth: MONSTER_MAX_HEALTH })
+        }, 8000)
+      }
     }
   })
 
   socket.on('close', () => {
     clients.delete(socket)
     broadcast({ type: 'player-left', id })
-    if (id === monsterHostId) electMonsterHost()
+    if (id === monsterHostId) {
+      monsterHostId = null
+      electMonsterHost()
+    }
   })
 })
 

@@ -9,6 +9,7 @@ import { GameHud } from './ui/GameHud.js'
 import { SoundManager } from './audio/SoundManager.js'
 import { ChatRooms } from './chat/ChatRooms.js'
 import { MultiplayerClient } from './multiplayer/MultiplayerClient.js'
+import { GunController } from './combat/GunController.js'
 import './style.css'
 
 const scene = new THREE.Scene()
@@ -16,6 +17,7 @@ scene.background = new THREE.Color(0x11181c)
 scene.fog = new THREE.FogExp2(0x11181c, 0.018)
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000)
+scene.add(camera)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
@@ -97,6 +99,20 @@ const monster = new RageMonster({
   },
 })
 multiplayer.attachMonster(monster)
+multiplayer.onMonsterHealth((health, maxHealth) => hud.setMonsterHealth(health, maxHealth))
+
+const gun = new GunController({
+  camera,
+  scene,
+  domElement: renderer.domElement,
+  player,
+  network: multiplayer,
+  onAmmoChanged: (ammo, reserve, reloading) => hud.setAmmo(ammo, reserve, reloading),
+  onShot: () => {
+    thirdPersonCamera.addShake(0.06)
+    sounds.gunshot()
+  },
+})
 
 hud.setHealth(player.health, player.maxHealth)
 
@@ -126,8 +142,14 @@ function animate() {
   timer.update()
   const deltaTime = Math.min(timer.getDelta(), 0.05)
   player.update(deltaTime, thirdPersonCamera.yaw)
-  if (multiplayer.isMonsterHost) monster.update(deltaTime, player.spawned && player.isAlive)
+  if (multiplayer.isMonsterHost) {
+    const target = multiplayer.getNearestActiveTarget(monster.root.position)
+    monster.setTarget(target ?? player.root)
+    monster.update(deltaTime, Boolean(target) && multiplayer.monsterAlive)
+  }
   else monster.updateRemote(deltaTime)
+  monster.updateLocalDamage(deltaTime, player)
+  gun.update(deltaTime)
   officeMap.update(deltaTime)
   multiplayer.update(deltaTime)
   const monsterDistance = player.root.position.distanceTo(monster.root.position)
@@ -152,5 +174,7 @@ window.addEventListener('beforeunload', () => {
   timer.dispose()
   player.dispose()
   multiplayer.dispose()
+  gun.dispose()
+  hud.dispose()
   thirdPersonCamera.dispose()
 })

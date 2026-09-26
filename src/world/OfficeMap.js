@@ -1,16 +1,16 @@
 import * as THREE from 'three'
 import { OfficeFurniture } from './OfficeFurniture.js'
+import { OfficeDetails } from './OfficeDetails.js'
 
-const WALL_HEIGHT = 6
-const WALL_THICKNESS = 0.34
-const MAP_WIDTH = 96
-const MAP_DEPTH = 72
-const HALF_WIDTH = MAP_WIDTH / 2
-const HALF_DEPTH = MAP_DEPTH / 2
+const WIDTH = 96
+const DEPTH = 72
+const HEIGHT = 4.5
+const GRID_SIZE = 6
 
 export class OfficeMap {
-  constructor(scene) {
+  constructor(scene, options = {}) {
     this.scene = scene
+    this.options = { lighting: true, shadows: true, ...options }
     this.group = new THREE.Group()
     this.group.name = 'OfficeMap'
     this.colliders = []
@@ -19,420 +19,300 @@ export class OfficeMap {
     this.emergencyLights = []
     this.elapsed = 0
     this.dust = null
+    this.alarmActive = false
+    this._grid = new Map()
+    this._cameraBlockers = []
+    this._cameraDirty = true
+    this._seed = 1979
+    this._disposed = false
     this.furniture = new OfficeFurniture()
-    this.wallMaterial = new THREE.MeshStandardMaterial({ color: 0xd9d8d2, roughness: 0.86 })
-    this.outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x314148, roughness: 0.74 })
-    this.trimMaterial = new THREE.MeshStandardMaterial({ color: 0x202a2e, roughness: 0.62, metalness: 0.18 })
-    this.floorMaterial = new THREE.MeshStandardMaterial({ color: 0x747d7f, roughness: 0.94, map: this.createGridTexture() })
+    const f = this.furniture
+    this.wallMaterial = f.material({ color: 0xe6e3dc, roughness: 0.89 })
+    this.outerWallMaterial = f.material({ color: 0xc7c9c3, roughness: 0.85 })
+    this.trimMaterial = f.material({ color: 0x626a69, metalness: 0.48, roughness: 0.48 })
+    this.floorMaterial = f.material({ color: 0x92988e, map: f.texture('carpet', WIDTH / 1.2, DEPTH / 1.2), roughness: 0.98 })
+    this.tileMaterial = f.material({ color: 0xc9c6bb, map: f.texture('stone', 6, 36), roughness: 0.78 })
+    this.glassMaterial = f.material({ color: 0xb5cacf, transparent: true, opacity: 0.16, roughness: 0.22, metalness: 0.05, side: THREE.DoubleSide, depthWrite: false })
+    this.frostMaterial = f.material({ color: 0xd8e0dc, transparent: true, opacity: 0.48, roughness: 0.94, side: THREE.DoubleSide, depthWrite: false })
+    this._proxyMaterial = f.material({ visible: false })
+    this._zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
     scene.add(this.group)
     this.build()
   }
 
-  createGridTexture() {
-    const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 256
-    const context = canvas.getContext('2d')
-    context.fillStyle = '#808789'
-    context.fillRect(0, 0, 256, 256)
-    context.strokeStyle = '#6c7476'
-    context.lineWidth = 2
-    context.strokeRect(1, 1, 254, 254)
-    for (let i = 0; i < 1000; i += 1) {
-      const shade = 110 + Math.floor(Math.random() * 25)
-      context.fillStyle = `rgba(${shade},${shade + 5},${shade + 6},0.13)`
-      context.fillRect(Math.random() * 256, Math.random() * 256, 1, 1)
-    }
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.wrapS = THREE.RepeatWrapping
-    texture.wrapT = THREE.RepeatWrapping
-    texture.repeat.set(12, 9)
-    texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 4
-    return texture
+  random() {
+    this._seed = (this._seed * 16807) % 2147483647
+    return (this._seed - 1) / 2147483646
   }
 
   build() {
     this.addShell()
     this.addFloorPlan()
-    this.addFloorZones()
-    this.addDoorsAndSigns()
     this.addWorkAreas()
-    this.addConferenceRoom()
-    this.addBreakRoom()
-    this.addSecurityRoom()
-    this.addReception()
-    this.addDecor()
-    this.addCeilingAndLights()
-    this.addAtmosphere()
+    this.details = new OfficeDetails({
+      group: this.group,
+      furniture: this.furniture,
+      addCollider: (object, padding) => this.addObjectCollider(object, padding),
+      width: WIDTH, depth: DEPTH, height: HEIGHT,
+    })
+    this.details.build()
+    if (this.options.lighting) this.addLighting()
+    this.batchStaticGeometry()
+    this.group.updateMatrixWorld(true)
   }
 
   addShell() {
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WIDTH, MAP_DEPTH), this.floorMaterial)
+    const f = this.furniture
+    const floor = f.plane(this.group, WIDTH, DEPTH, [0, 0, 0], this.floorMaterial)
     floor.rotation.x = -Math.PI / 2
-    floor.receiveShadow = true
-    this.group.add(floor)
-    const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(MAP_WIDTH, MAP_DEPTH),
-      new THREE.MeshStandardMaterial({ color: 0xc5c8c5, roughness: 0.96, side: THREE.DoubleSide }),
-    )
-    ceiling.rotation.x = Math.PI / 2
-    ceiling.position.y = WALL_HEIGHT
-    this.group.add(ceiling)
-    this.addWall(0, -HALF_DEPTH, MAP_WIDTH, WALL_THICKNESS, false)
-    this.addWall(0, HALF_DEPTH, MAP_WIDTH, WALL_THICKNESS, false)
-    this.addWall(-HALF_WIDTH, 0, WALL_THICKNESS, MAP_DEPTH, false)
-    this.addWall(HALF_WIDTH, 0, WALL_THICKNESS, MAP_DEPTH, false)
+    floor.name = 'CarpetFloor'
+    const aisle = f.plane(this.group, 10.8, DEPTH - 0.3, [0, 0.007, 0], this.tileMaterial)
+    aisle.rotation.x = -Math.PI / 2
+    for (const x of [-5.42, 5.42]) {
+      const seam = f.box(this.group, [0.028, 0.012, DEPTH - 0.3], [x, 0.009, 0], f.edge)
+      seam.castShadow = false
+    }
+    const ceiling = f.box(this.group, [WIDTH, 0.1, DEPTH], [0, HEIGHT + 0.07, 0], this.wallMaterial)
+    ceiling.castShadow = false
+    ceiling.name = 'CeilingSlab'
+
+    // Continuous outer collision envelopes; windows never become walk-through gaps.
+    for (const side of [-1, 1]) {
+      this.addWindowWall(0, side * DEPTH / 2, WIDTH, 0)
+      this.addWindowWall(side * WIDTH / 2, 0, DEPTH, Math.PI / 2)
+    }
+    for (const x of [-44, -25, -7, 7, 25, 44]) for (const z of [-22.5, -4.5, 13.5, 30]) {
+      const column = new THREE.Group(); column.name = 'StructuralColumn'
+      f.box(column, [0.65, HEIGHT, 0.65], [0, HEIGHT / 2, 0], this.wallMaterial)
+      f.box(column, [0.68, 0.13, 0.68], [0, 0.065, 0], this.trimMaterial)
+      column.position.set(x, 0, z)
+      this.group.add(column)
+      this.registerCollider(column, { blocksMonster: true })
+    }
+  }
+
+  addWindowWall(x, z, width, rotation) {
+    const f = this.furniture
+    const wall = new THREE.Group(); wall.name = 'PerimeterWindowWall'
+    f.box(wall, [width, 0.98, 0.34], [0, 0.49, 0], this.outerWallMaterial)
+    f.box(wall, [width, 0.46, 0.34], [0, HEIGHT - 0.23, 0], this.wallMaterial)
+    f.box(wall, [width, 0.075, 0.48], [0, 1.01, 0], f.white)
+    f.box(wall, [width, 0.14, 0.36], [0, 0.07, 0], this.trimMaterial)
+    const count = Math.round(width / 4)
+    const pitch = width / count
+    for (let i = 0; i < count; i += 1) {
+      const px = -width / 2 + (i + 0.5) * pitch
+      f.plane(wall, pitch - 0.075, 3.0, [px, 2.53, 0], this.glassMaterial)
+      f.box(wall, [0.07, 3.02, 0.14], [px - pitch / 2, 2.53, 0], this.trimMaterial)
+      const blind = f.box(wall, [pitch - 0.08, 0.14 + (i % 3) * 0.13, 0.06], [px, 3.9 - (i % 3) * 0.065, 0.1], f.white)
+      blind.castShadow = false
+    }
+    f.box(wall, [width, 0.045, 0.12], [0, 3.08, 0], this.trimMaterial)
+    wall.position.set(x, 0, z); wall.rotation.y = rotation
+    this.group.add(wall)
+    const horizontal = Math.abs(Math.sin(rotation)) < 0.5
+    this.addBoxCollider(x, z, horizontal ? width : 0.34, horizontal ? 0.34 : width, wall, true)
   }
 
   addFloorPlan() {
-    const wingDoors = [
-      { center: -25, width: 5.2 }, { center: -8, width: 5.2 },
-      { center: 9, width: 5.2 }, { center: 26, width: 5.2 },
-    ]
-    this.addVerticalPartition(-10, -HALF_DEPTH, HALF_DEPTH, wingDoors)
-    this.addVerticalPartition(10, -HALF_DEPTH, HALF_DEPTH, wingDoors)
-    this.addHorizontalPartition(-16, -HALF_WIDTH, -10, [{ center: -29, width: 5.5 }])
-    this.addHorizontalPartition(16, -HALF_WIDTH, -10, [{ center: -29, width: 5.5 }])
-    this.addHorizontalPartition(-16, 10, HALF_WIDTH, [{ center: 29, width: 5.5 }])
-    this.addHorizontalPartition(16, 10, HALF_WIDTH, [{ center: 29, width: 5.5 }])
-    this.addGlassDivider(-28, 0, 11)
-    this.addGlassDivider(28, 0, 11)
-  }
-
-  addVerticalPartition(x, start, end, openings) {
-    let cursor = start
-    for (const opening of [...openings].sort((a, b) => a.center - b.center)) {
-      const edge = opening.center - opening.width / 2
-      if (edge > cursor) this.addWall(x, (cursor + edge) / 2, WALL_THICKNESS, edge - cursor, true)
-      cursor = opening.center + opening.width / 2
+    // Main entrance and the central route stay clear at x=0, including z=+/-30.
+    this.addHorizontalPartition(-25, -47.8, -8, [{ center: -28, width: 4.2 }])
+    this.addHorizontalPartition(-25, 8, 47.8, [{ center: 28, width: 4.2 }])
+    this.addHorizontalPartition(25, 12, 47.8, [{ center: 28, width: 4.2 }])
+    this.addGlassDivider(-8, -30.5, 10.8, Math.PI / 2)
+    this.addGlassDivider(8, -30.5, 10.8, Math.PI / 2)
+    this.addGlassDivider(12, 30.5, 10.8, Math.PI / 2)
+    for (const z of [-24.1, 24.1]) {
+      const strip = this.furniture.plane(this.group, 95, 0.045, [0, 0.011, z], this.trimMaterial)
+      strip.rotation.x = -Math.PI / 2
     }
-    if (cursor < end) this.addWall(x, (cursor + end) / 2, WALL_THICKNESS, end - cursor, true)
   }
 
   addHorizontalPartition(z, start, end, openings) {
     let cursor = start
     for (const opening of [...openings].sort((a, b) => a.center - b.center)) {
       const edge = opening.center - opening.width / 2
-      if (edge > cursor) this.addWall((cursor + edge) / 2, z, edge - cursor, WALL_THICKNESS, true)
+      if (edge > cursor) this.addGlassDivider((cursor + edge) / 2, z, edge - cursor)
       cursor = opening.center + opening.width / 2
     }
-    if (cursor < end) this.addWall((cursor + end) / 2, z, end - cursor, WALL_THICKNESS, true)
+    if (cursor < end) this.addGlassDivider((cursor + end) / 2, z, end - cursor)
   }
 
-  addGlassDivider(x, z, width) {
-    const group = new THREE.Group()
-    const glass = new THREE.Mesh(
-      new THREE.BoxGeometry(width, 2.8, 0.08),
-      new THREE.MeshPhysicalMaterial({ color: 0x8db9c0, transparent: true, opacity: 0.22, roughness: 0.12 }),
-    )
-    glass.position.y = 1.75
-    group.add(glass)
-    for (const postX of [-width / 2, 0, width / 2]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 3.5, 0.13), this.trimMaterial)
-      post.position.set(postX, 1.75, 0)
-      group.add(post)
+  addGlassDivider(x, z, width, rotation = 0) {
+    const f = this.furniture
+    const wall = new THREE.Group(); wall.name = 'GlazedPartition'
+    const pieces = Math.ceil(width / 2.5)
+    const pitch = width / pieces
+    for (let i = 0; i < pieces; i += 1) {
+      const px = -width / 2 + (i + 0.5) * pitch
+      f.plane(wall, pitch - 0.035, 3.25, [px, 1.765, 0], this.glassMaterial)
+      f.plane(wall, pitch - 0.035, 0.24, [px, 1.32, 0.005], this.frostMaterial)
+      f.box(wall, [0.032, 3.42, 0.07], [px - pitch / 2, 1.71, 0], this.trimMaterial)
     }
-    group.position.set(x, 0, z)
-    this.group.add(group)
-    this.addBoxCollider(x, z, width, 0.14, group)
-  }
-
-  addFloorZones() {
-    const carpet = new THREE.MeshStandardMaterial({ color: 0x283c43, roughness: 0.98 })
-    const tile = new THREE.MeshStandardMaterial({ color: 0xa5aaa6, roughness: 0.76 })
-    const zones = [
-      [0, 25, 17, 18, tile], [-29, -25.5, 34, 17, carpet], [29, -25.5, 34, 17, carpet],
-      [-29, 25.5, 34, 17, carpet], [29, 25.5, 34, 17, carpet],
-    ]
-    for (const [x, z, width, depth, material] of zones) {
-      const zone = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material)
-      zone.rotation.x = -Math.PI / 2
-      zone.position.set(x, 0.012, z)
-      this.group.add(zone)
-    }
-    const route = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.13, 64),
-      new THREE.MeshBasicMaterial({ color: 0x5ed079, transparent: true, opacity: 0.7 }),
-    )
-    route.rotation.x = -Math.PI / 2
-    route.position.y = 0.022
-    this.group.add(route)
-  }
-
-  addDoorsAndSigns() {
-    for (const x of [-10, 10]) for (const z of [-25, -8, 9, 26]) this.addDoorFrame(x, z, Math.PI / 2)
-    for (const x of [-29, 29]) for (const z of [-16, 16]) this.addDoorFrame(x, z, 0)
-    const signs = [
-      [-9.78, -25, 'MEETING', Math.PI / 2], [-9.78, 26, 'WORKSPACE', Math.PI / 2],
-      [9.78, -25, 'SECURITY', -Math.PI / 2], [9.78, 26, 'BREAK ROOM', -Math.PI / 2],
-      [0, 35.78, 'MAIN LOBBY', Math.PI],
-    ]
-    for (const [x, z, text, rotation] of signs) this.addSign(x, z, text, rotation)
-  }
-
-  addDoorFrame(x, z, rotation) {
-    const frame = new THREE.Group()
-    for (const side of [-1, 1]) {
-      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.35, 0.22), this.trimMaterial)
-      jamb.position.set(side * 2.55, 1.675, 0)
-      frame.add(jamb)
-    }
-    const header = new THREE.Mesh(new THREE.BoxGeometry(5.25, 0.18, 0.22), this.trimMaterial)
-    header.position.y = 3.26
-    frame.add(header)
-    frame.position.set(x, 0, z)
-    frame.rotation.y = rotation
-    this.group.add(frame)
-  }
-
-  addSign(x, z, text, rotation) {
-    const canvas = document.createElement('canvas')
-    canvas.width = 320
-    canvas.height = 72
-    const context = canvas.getContext('2d')
-    context.fillStyle = '#172328'
-    context.fillRect(0, 0, 320, 72)
-    context.fillStyle = '#73e28b'
-    context.font = '700 27px Arial'
-    context.textAlign = 'center'
-    context.textBaseline = 'middle'
-    context.fillText(text, 160, 38)
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.colorSpace = THREE.SRGBColorSpace
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.25, 0.5), new THREE.MeshBasicMaterial({ map: texture }))
-    sign.position.set(x, 3.9, z)
-    sign.rotation.y = rotation
-    this.group.add(sign)
+    f.box(wall, [width, 0.08, 0.085], [0, 0.075, 0], this.trimMaterial)
+    f.box(wall, [width, 0.08, 0.085], [0, 3.44, 0], this.trimMaterial)
+    wall.position.set(x, 0, z); wall.rotation.y = rotation
+    this.group.add(wall)
+    this.registerCollider(wall, { breakable: true })
   }
 
   addWorkAreas() {
-    const desks = [
-      [-40, 24, 0], [-34, 24, 0], [-24, 24, Math.PI], [-18, 24, Math.PI],
-      [-40, 8, 0], [-34, 8, 0], [-24, 8, Math.PI], [-18, 8, Math.PI],
-      [18, 8, 0], [24, 8, 0], [34, 8, Math.PI], [40, 8, Math.PI],
-    ]
-    for (const desk of desks) this.addDesk(...desk)
-    for (const [x, z, width] of [[-29, 27, 25], [-29, 11, 25], [29, 11, 25]]) {
-      const divider = new THREE.Mesh(new THREE.BoxGeometry(width, 1.15, 0.12), this.outerWallMaterial)
-      divider.position.set(x, 0.575, z)
-      divider.castShadow = true
-      this.group.add(divider)
-      this.addBoxCollider(x, z, width, 0.12, divider)
+    let deskIndex = 0
+    for (const x of [-34, -16, 16, 34]) for (const z of [-18, -9, 0, 9, 18]) {
+      for (let station = 0; station < 4; station += 1) {
+        const px = x - 4.5 + station * 3
+        const spine = this.furniture.cubiclePanel(3)
+        spine.position.set(px, 0, z); this.group.add(spine)
+        this.registerCollider(spine, { breakable: true })
+        for (const side of [-1, 1]) {
+          this.addDesk(px, z + side * 0.66, side > 0 ? 0 : Math.PI, deskIndex++)
+        }
+      }
+      for (let divider = 0; divider <= 4; divider += 1) {
+        const side = this.furniture.cubiclePanel(5.8)
+        side.position.set(x - 6 + divider * 3, 0, z)
+        side.rotation.y = Math.PI / 2
+        this.group.add(side)
+        this.registerCollider(side, { breakable: true })
+      }
     }
+    this.workstationCount = deskIndex
   }
 
-  addDesk(x, z, rotation = 0) {
-    const desk = this.furniture.desk()
-    desk.position.set(x, 0, z)
-    desk.rotation.y = rotation
-    this.group.add(desk)
-    this.addObjectCollider(desk)
-    const offset = new THREE.Vector3(0, 0, 1.15).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotation)
+  addDesk(x, z, rotation = 0, variant = 0) {
+    const desk = this.furniture.desk(variant)
+    desk.position.set(x, 0, z); desk.rotation.y = rotation
+    this.group.add(desk); this.addObjectCollider(desk)
+    const offset = new THREE.Vector3(0, 0, 1.15).applyAxisAngle(THREE.Object3D.DEFAULT_UP, rotation)
     const chair = this.furniture.chair()
     chair.position.set(x + offset.x, 0, z + offset.z)
-    chair.rotation.y = rotation
-    this.group.add(chair)
-    this.addObjectCollider(chair)
+    chair.rotation.y = rotation + ((variant % 5) - 2) * 0.06
+    this.group.add(chair); this.addObjectCollider(chair)
   }
 
-  addConferenceRoom() {
-    const table = this.furniture.conferenceTable()
-    table.position.set(-29, 0, -25)
-    this.group.add(table)
-    this.addObjectCollider(table, 0.08)
-    const seats = [[-3, 0, -Math.PI / 2], [3, 0, Math.PI / 2], [-1.6, -1.6, 0], [1.6, -1.6, 0], [-1.6, 1.6, Math.PI], [1.6, 1.6, Math.PI]]
-    for (const [dx, dz, rotation] of seats) {
-      const chair = this.furniture.chair()
-      chair.position.set(-29 + dx, 0, -25 + dz)
-      chair.rotation.y = rotation
-      this.group.add(chair)
-      this.addObjectCollider(chair)
+  addWall(x, z, width, depth, breakable = true) {
+    const wall = new THREE.Group()
+    this.furniture.box(wall, [width, HEIGHT, depth], [0, HEIGHT / 2, 0], this.wallMaterial)
+    this.furniture.box(wall, [width + 0.02, 0.12, depth + 0.02], [0, 0.06, 0], this.trimMaterial)
+    wall.position.set(x, 0, z); this.group.add(wall)
+    return this.registerCollider(wall, { breakable, blocksMonster: !breakable })
+  }
+
+  addLighting() {
+    // One shadow map; the repeated ceiling fixtures are emissive geometry.
+    const hemi = new THREE.HemisphereLight(0xe6eff8, 0xb5b8b5, 1.15)
+    this.group.add(hemi)
+    const fill = new THREE.AmbientLight(0xf4f3eb, 0.55)
+    this.group.add(fill)
+    const sun = new THREE.DirectionalLight(0xfff2db, 1.7)
+    sun.position.set(-38, 25, -27)
+    sun.target.position.set(6, 0, 4)
+    sun.castShadow = this.options.shadows
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.left = -62; sun.shadow.camera.right = 62
+    sun.shadow.camera.top = 50; sun.shadow.camera.bottom = -50
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 140
+    sun.shadow.normalBias = 0.025; sun.shadow.bias = -0.00015
+    this.group.add(sun, sun.target)
+    for (const x of [-32, 0, 32]) for (const z of [-22, 0, 22]) {
+      const light = new THREE.SpotLight(0xfff7e8, 46, 34, Math.PI * 0.42, 1, 2)
+      light.position.set(x, 4.13, z)
+      light.target.position.set(x, 0, z)
+      this.group.add(light, light.target)
     }
-    this.addWallScreen(-29, -35.75, 4.2, 1.8)
-  }
-
-  addBreakRoom() {
-    const counter = new THREE.Mesh(
-      new THREE.BoxGeometry(14, 1.05, 1.2),
-      new THREE.MeshStandardMaterial({ color: 0x5b6669, roughness: 0.7 }),
-    )
-    counter.position.set(31, 0.525, 34.7)
-    counter.castShadow = true
-    this.group.add(counter)
-    this.addBoxCollider(31, 34.7, 14, 1.2, counter)
-    for (const x of [20, 26, 32, 38]) {
-      const table = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.08, 24), this.furniture.wood)
-      table.position.set(x, 0.76, 23.5)
-      table.castShadow = true
-      this.group.add(table)
-      this.addBoxCollider(x, 23.5, 2.1, 2.1, table)
+    for (const z of [-29, 29]) {
+      const beacon = new THREE.PointLight(0xff3427, 0, 15, 2)
+      beacon.position.set(0, 3.7, z)
+      this.group.add(beacon); this.emergencyLights.push(beacon)
     }
-    this.addVendingMachine(45.5, 28, -Math.PI / 2)
   }
 
-  addSecurityRoom() {
-    for (const x of [19, 25, 31, 37, 43]) {
-      const rack = new THREE.Group()
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.8, 1), this.trimMaterial)
-      body.position.y = 1.4
-      body.castShadow = true
-      rack.add(body)
-      for (let row = 0; row < 7; row += 1) {
-        const light = new THREE.Mesh(
-          new THREE.BoxGeometry(0.82, 0.035, 0.02),
-          new THREE.MeshBasicMaterial({ color: row % 3 === 0 ? 0xff6a4d : 0x58db87 }),
-        )
-        light.position.set(0, 0.48 + row * 0.32, 0.511)
-        rack.add(light)
+  setAlarm(active) { this.alarmActive = Boolean(active) }
+
+  objectBounds(object, padding = 0) {
+    object.updateWorldMatrix(true, true)
+    const box = new THREE.Box3()
+    object.traverse((child) => {
+      if (!child.isMesh || child.userData.nonPhysical) return
+      if (!child.geometry.boundingBox) child.geometry.computeBoundingBox()
+      box.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld))
+    })
+    box.min.x -= padding; box.max.x += padding
+    box.min.z -= padding; box.max.z += padding
+    return box
+  }
+
+  registerCollider(object, { breakable = false, blocksMonster = false, padding = 0.015, box } = {}) {
+    const bounds = box || this.objectBounds(object, padding)
+    const size = bounds.getSize(new THREE.Vector3())
+    const center = bounds.getCenter(new THREE.Vector3())
+    const proxy = this.furniture.box(this.group, [Math.max(size.x, 0.01), Math.max(size.y, 0.01), Math.max(size.z, 0.01)], center.toArray(), this._proxyMaterial)
+    proxy.name = 'CollisionProxy'
+    proxy.castShadow = false; proxy.receiveShadow = false
+    proxy.userData.noBatch = true
+    const collider = { mesh: proxy, box: bounds, blocksMonster, breakable, destroyed: false, instances: [], visuals: [] }
+    object.traverse((child) => { if (child.isMesh) child.userData.colliderOwner = collider })
+    this.colliders.push(collider)
+    if (breakable) this.breakableWalls.push(collider)
+    this._cameraDirty = true
+    for (let gx = Math.floor(bounds.min.x / GRID_SIZE); gx <= Math.floor(bounds.max.x / GRID_SIZE); gx += 1) {
+      for (let gz = Math.floor(bounds.min.z / GRID_SIZE); gz <= Math.floor(bounds.max.z / GRID_SIZE); gz += 1) {
+        const key = gx + ',' + gz
+        if (!this._grid.has(key)) this._grid.set(key, [])
+        this._grid.get(key).push(collider)
       }
-      rack.position.set(x, 0, -31.5)
-      this.group.add(rack)
-      this.addObjectCollider(rack)
     }
-    this.addWallScreen(29, -16.22, 5.4, 2.1)
+    return collider
   }
 
-  addReception() {
-    const front = new THREE.Mesh(new THREE.BoxGeometry(7.5, 1.2, 0.48), this.outerWallMaterial)
-    front.position.set(0, 0.6, 19)
-    front.castShadow = true
-    this.group.add(front)
-    this.addBoxCollider(0, 19, 7.5, 0.48, front)
-    const returnDesk = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 3.1), this.furniture.wood)
-    returnDesk.position.set(-2.7, 0.82, 17.7)
-    returnDesk.castShadow = true
-    this.group.add(returnDesk)
-    this.addBoxCollider(-2.7, 17.7, 2.2, 3.1, returnDesk)
-  }
-
-  addDecor() {
-    for (const [x, z] of [[-44, -32], [44, 32], [-13.5, -13], [13.5, 13], [-44, 32], [44, -11]]) this.addPlant(x, z)
-    this.addVendingMachine(-46, 0, Math.PI / 2)
-    const material = new THREE.MeshStandardMaterial({ color: 0x33464c, roughness: 0.9 })
-    for (const [x, z] of [[-4.5, 29], [4.5, 29], [-4.5, 5], [4.5, 5]]) {
-      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.48, 0.72), material)
-      bench.position.set(x, 0.42, z)
-      bench.castShadow = true
-      this.group.add(bench)
-      this.addObjectCollider(bench)
-    }
-  }
-
-  addPlant(x, z) {
-    const pot = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.5, 0.4, 0.72, 12),
-      new THREE.MeshStandardMaterial({ color: 0x222b2d, roughness: 0.92 }),
-    )
-    pot.position.set(x, 0.36, z)
-    this.group.add(pot)
-    const leaves = new THREE.MeshStandardMaterial({ color: 0x356947, roughness: 0.9 })
-    for (let i = 0; i < 7; i += 1) {
-      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.45, 7), leaves)
-      leaf.position.set(x + Math.sin(i * 2.4) * 0.22, 1.25, z + Math.cos(i * 2.4) * 0.22)
-      leaf.rotation.z = Math.sin(i) * 0.24
-      this.group.add(leaf)
-    }
-    this.addBoxCollider(x, z, 1, 1, pot)
-  }
-
-  addVendingMachine(x, z, rotation) {
-    const machine = new THREE.Group()
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.35, 2.55, 0.82), this.trimMaterial)
-    body.position.y = 1.275
-    machine.add(body)
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.55), new THREE.MeshBasicMaterial({ color: 0x40a8ba }))
-    glow.position.set(0, 1.45, 0.416)
-    machine.add(glow)
-    machine.position.set(x, 0, z)
-    machine.rotation.y = rotation
-    this.group.add(machine)
-    this.addObjectCollider(machine)
-  }
-
-  addWallScreen(x, z, width, height) {
-    const screen = new THREE.Mesh(
-      new THREE.BoxGeometry(width, height, 0.12),
-      new THREE.MeshStandardMaterial({ color: 0x142328, emissive: 0x174b58, emissiveIntensity: 1.15 }),
-    )
-    screen.position.set(x, 3.1, z)
-    this.group.add(screen)
-  }
-
-  addCeilingAndLights() {
-    const rails = new THREE.MeshStandardMaterial({ color: 0x4f5b5e, roughness: 0.55, metalness: 0.42 })
-    for (const x of [-32, -16, 0, 16, 32]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 68), rails)
-      rail.position.set(x, WALL_HEIGHT - 0.24, 0)
-      this.group.add(rail)
-    }
-    for (const x of [-36, -18, 0, 18, 36]) for (const z of [-27, -9, 9, 27]) this.addLight(x, z)
-  }
-
-  addLight(x, z) {
-    const fixture = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.07, 0.52), new THREE.MeshBasicMaterial({ color: 0xfff8df }))
-    fixture.position.set(x, WALL_HEIGHT - 0.09, z)
-    this.group.add(fixture)
-    const light = new THREE.PointLight(0xfff1d3, 10.5, 14, 2)
-    light.position.set(x, WALL_HEIGHT - 0.42, z)
-    this.group.add(light)
-  }
-
-  addAtmosphere() {
-    for (const z of [-30, 30]) {
-      const beacon = new THREE.PointLight(0xff3a2d, 0, 14, 2)
-      beacon.position.set(0, 5.2, z)
-      this.group.add(beacon)
-      this.emergencyLights.push(beacon)
-    }
-    const positions = new Float32Array(120 * 3)
-    for (let i = 0; i < 120; i += 1) {
-      positions[i * 3] = (Math.random() - 0.5) * (MAP_WIDTH - 4)
-      positions[i * 3 + 1] = 0.4 + Math.random() * 5
-      positions[i * 3 + 2] = (Math.random() - 0.5) * (MAP_DEPTH - 4)
-    }
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    this.dust = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xcbd2ce, size: 0.035, transparent: true, opacity: 0.2 }))
-    this.group.add(this.dust)
-  }
-
-  addWall(x, z, width, depth, breakable) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, WALL_HEIGHT, depth), breakable ? this.wallMaterial : this.outerWallMaterial)
-    mesh.position.set(x, WALL_HEIGHT / 2, z)
-    mesh.castShadow = true
-    mesh.receiveShadow = true
-    const baseboard = new THREE.Mesh(new THREE.BoxGeometry(width + 0.02, 0.18, depth + 0.02), this.trimMaterial)
-    baseboard.position.y = -WALL_HEIGHT / 2 + 0.1
-    mesh.add(baseboard)
-    this.group.add(mesh)
-    const wall = this.addBoxCollider(x, z, width, depth, mesh, !breakable)
-    wall.breakable = breakable
-    if (breakable) this.breakableWalls.push(wall)
-  }
+  addObjectCollider(object, padding = 0.015) { return this.registerCollider(object, { padding }) }
 
   addBoxCollider(x, z, width, depth, mesh, blocksMonster = false) {
-    const collider = {
-      mesh, blocksMonster, breakable: false, destroyed: false,
-      box: new THREE.Box3(
-        new THREE.Vector3(x - width / 2, 0, z - depth / 2),
-        new THREE.Vector3(x + width / 2, WALL_HEIGHT, z + depth / 2),
-      ),
-    }
-    this.colliders.push(collider)
-    return collider
+    const box = new THREE.Box3(new THREE.Vector3(x - width / 2, 0, z - depth / 2), new THREE.Vector3(x + width / 2, HEIGHT, z + depth / 2))
+    return this.registerCollider(mesh, { box, blocksMonster })
   }
 
-  addObjectCollider(object, padding = 0.04) {
-    object.updateWorldMatrix(true, true)
-    const box = new THREE.Box3().setFromObject(object)
-    box.min.x -= padding
-    box.min.z -= padding
-    box.max.x += padding
-    box.max.z += padding
-    const collider = { mesh: object, blocksMonster: false, breakable: false, destroyed: false, box }
-    this.colliders.push(collider)
-    return collider
+  batchStaticGeometry() {
+    this.group.updateMatrixWorld(true)
+    const buckets = new Map()
+    const inverseRoot = this.group.matrixWorld.clone().invert()
+    this.group.traverse((mesh) => {
+      if (!mesh.isMesh || mesh.userData.noBatch || mesh.isInstancedMesh) return
+      if (mesh.material.transparent && !mesh.userData.forceBatch) {
+        if (mesh.userData.colliderOwner) mesh.userData.colliderOwner.visuals.push(mesh)
+        return
+      }
+      const key = mesh.geometry.uuid + ':' + mesh.material.uuid + ':' + mesh.castShadow + ':' + mesh.receiveShadow
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key).push({ mesh, matrix: new THREE.Matrix4().multiplyMatrices(inverseRoot, mesh.matrixWorld) })
+    })
+    for (const entries of buckets.values()) {
+      const source = entries[0].mesh
+      const batch = new THREE.InstancedMesh(source.geometry, source.material, entries.length)
+      batch.name = 'OfficeInstances'
+      batch.castShadow = source.castShadow; batch.receiveShadow = source.receiveShadow
+      batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      entries.forEach(({ mesh, matrix }, index) => {
+        batch.setMatrixAt(index, matrix)
+        const owner = mesh.userData.colliderOwner
+        if (owner) owner.instances.push({ batch, index })
+        mesh.removeFromParent()
+      })
+      batch.instanceMatrix.needsUpdate = true
+      batch.computeBoundingBox(); batch.computeBoundingSphere()
+      this.group.add(batch)
+    }
+  }
+
+  *nearbyColliders(position, radius) {
+    const visited = new Set()
+    for (let gx = Math.floor((position.x - radius) / GRID_SIZE); gx <= Math.floor((position.x + radius) / GRID_SIZE); gx += 1) {
+      for (let gz = Math.floor((position.z - radius) / GRID_SIZE); gz <= Math.floor((position.z + radius) / GRID_SIZE); gz += 1) {
+        for (const collider of this._grid.get(gx + ',' + gz) || []) {
+          if (!visited.has(collider)) { visited.add(collider); yield collider }
+        }
+      }
+    }
   }
 
   resolvePlayerMovement(position, previousPosition, radius = 0.42) {
@@ -445,91 +325,110 @@ export class OfficeMap {
 
   resolveCircleMovement(position, previousPosition, radius, collideWithBreakable) {
     const target = position.clone()
-    const displacement = target.clone().sub(previousPosition)
-    const steps = Math.min(12, Math.max(1, Math.ceil(displacement.length() / Math.max(radius * 0.65, 0.18))))
     const resolved = previousPosition.clone()
+    const distance = Math.hypot(target.x - resolved.x, target.z - resolved.z)
+    const steps = Math.max(1, Math.ceil(distance / Math.max(radius * 0.5, 0.08)))
+    const trial = resolved.clone()
     let collided = false
     for (let step = 1; step <= steps; step += 1) {
-      const next = previousPosition.clone().lerp(target, step / steps)
-      const tryX = resolved.clone()
-      tryX.x = next.x
-      if (this.isPositionBlocked(tryX, radius, collideWithBreakable)) collided = true
-      else resolved.x = tryX.x
-      const tryZ = resolved.clone()
-      tryZ.z = next.z
-      if (this.isPositionBlocked(tryZ, radius, collideWithBreakable)) collided = true
-      else resolved.z = tryZ.z
+      const t = step / steps
+      trial.copy(resolved); trial.x = THREE.MathUtils.lerp(previousPosition.x, target.x, t)
+      if (this.isPositionBlocked(trial, radius, collideWithBreakable)) collided = true
+      else resolved.x = trial.x
+      trial.copy(resolved); trial.z = THREE.MathUtils.lerp(previousPosition.z, target.z, t)
+      if (this.isPositionBlocked(trial, radius, collideWithBreakable)) collided = true
+      else resolved.z = trial.z
     }
-    position.x = resolved.x
-    position.z = resolved.z
+    position.x = resolved.x; position.z = resolved.z
     return collided
   }
 
-  isPositionBlocked(position, radius, collideWithBreakable) {
-    for (const collider of this.colliders) {
+  isPositionBlocked(position, radius, collideWithBreakable = true) {
+    // Bounds also protect callers making large movements beyond the spatial grid.
+    if (Math.abs(position.x) + radius > WIDTH / 2 - 0.17 || Math.abs(position.z) + radius > DEPTH / 2 - 0.17) return true
+    for (const collider of this.nearbyColliders(position, radius)) {
       if (collider.destroyed || (!collideWithBreakable && !collider.blocksMonster)) continue
       const nearestX = THREE.MathUtils.clamp(position.x, collider.box.min.x, collider.box.max.x)
       const nearestZ = THREE.MathUtils.clamp(position.z, collider.box.min.z, collider.box.max.z)
-      const dx = position.x - nearestX
-      const dz = position.z - nearestZ
-      if (dx * dx + dz * dz < radius * radius) return true
+      if ((position.x - nearestX) ** 2 + (position.z - nearestZ) ** 2 < radius ** 2) return true
     }
     return false
   }
 
   smashWalls(position, radius = 2.4) {
     let smashed = false
-    for (const wall of this.breakableWalls) {
-      if (wall.destroyed || wall.box.distanceToPoint(position) > radius) continue
-      this.destroyWall(wall, position)
-      smashed = true
+    for (const obstacle of this.nearbyColliders(position, radius)) {
+      // Perimeter walls and structural columns survive. Everything else becomes
+      // destructible cover: glass, cubicles, desks, chairs, props, and counters.
+      if (obstacle.blocksMonster || obstacle.destroyed || obstacle.box.distanceToPoint(position) > radius) continue
+      this.destroyWall(obstacle, position); smashed = true
     }
     return smashed
   }
 
   destroyWall(wall, impactPoint) {
-    wall.destroyed = true
-    wall.mesh.visible = false
-    const size = new THREE.Vector3()
-    wall.box.getSize(size)
-    const count = Math.min(14, Math.max(6, Math.ceil(Math.max(size.x, size.z) / 2)))
-    for (let i = 0; i < count; i += 1) {
-      const shard = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.2, size.x / 5), 1.1, Math.max(0.2, size.z / 5)), this.wallMaterial)
-      shard.position.set(wall.mesh.position.x + (Math.random() - 0.5) * size.x, 0.7 + Math.random() * 2.8, wall.mesh.position.z + (Math.random() - 0.5) * size.z)
-      shard.rotation.set(Math.random(), Math.random(), Math.random())
-      shard.castShadow = true
-      this.group.add(shard)
-      const direction = shard.position.clone().sub(impactPoint).setY(0.7 + Math.random()).normalize()
-      this.debris.push({ mesh: shard, velocity: direction.multiplyScalar(4.5 + Math.random() * 6), spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(7), life: 3.5 })
+    if (wall.destroyed) return
+    wall.destroyed = true; wall.mesh.visible = false
+    for (const { batch, index } of wall.instances) {
+      batch.setMatrixAt(index, this._zeroMatrix)
+      batch.instanceMatrix.needsUpdate = true
+    }
+    for (const visual of wall.visuals) visual.visible = false
+    this._cameraDirty = true
+    const size = wall.box.getSize(new THREE.Vector3())
+    const center = wall.box.getCenter(new THREE.Vector3())
+    const count = Math.min(10, Math.max(4, Math.ceil(Math.max(size.x, size.z))))
+    for (let i = 0; i < count && this.debris.length < 80; i += 1) {
+      const dimensions = new THREE.Vector3(Math.min(0.7, Math.max(0.08, size.x / 5)), 0.2 + this.random() * 0.32, Math.min(0.7, Math.max(0.08, size.z / 5)))
+      const shard = this.furniture.box(this.group, dimensions.toArray(), [center.x + (this.random() - 0.5) * size.x, 0.5 + this.random() * Math.min(size.y, 2), center.z + (this.random() - 0.5) * size.z], this.furniture.panelFabric)
+      shard.rotation.set(this.random() * 3, this.random() * 3, this.random() * 3)
+      const velocity = shard.position.clone().sub(impactPoint).setY(0.7 + this.random()).normalize().multiplyScalar(2.5 + this.random() * 4)
+      this.debris.push({ mesh: shard, velocity, spin: new THREE.Vector3(this.random() - 0.5, this.random() - 0.5, this.random() - 0.5).multiplyScalar(9), life: 3.5, dimensions })
     }
   }
 
   update(deltaTime) {
-    this.elapsed += deltaTime
-    const pulse = Math.max(0, Math.sin(this.elapsed * 2.8))
-    for (const light of this.emergencyLights) light.intensity = pulse * 14
-    if (this.dust) this.dust.rotation.y += deltaTime * 0.01
+    if (this._disposed) return
+    const dt = Math.min(Math.max(Number.isFinite(deltaTime) ? deltaTime : 0, 0), 0.05)
+    this.elapsed += dt
+    const pulse = this.alarmActive ? Math.max(0, Math.sin(this.elapsed * 3.4)) * 22 : 0
+    for (const light of this.emergencyLights) light.intensity = pulse
     for (let i = this.debris.length - 1; i >= 0; i -= 1) {
       const debris = this.debris[i]
-      debris.life -= deltaTime
-      debris.velocity.y -= 15 * deltaTime
-      debris.mesh.position.addScaledVector(debris.velocity, deltaTime)
-      debris.mesh.rotation.x += debris.spin.x * deltaTime
-      debris.mesh.rotation.y += debris.spin.y * deltaTime
-      if (debris.mesh.position.y < 0.18) {
-        debris.mesh.position.y = 0.18
-        debris.velocity.multiplyScalar(0.5)
-        debris.velocity.y = Math.abs(debris.velocity.y) * 0.22
+      debris.life -= dt
+      debris.velocity.y -= 9.8 * dt
+      debris.mesh.position.addScaledVector(debris.velocity, dt)
+      debris.mesh.rotation.x += debris.spin.x * dt
+      debris.mesh.rotation.y += debris.spin.y * dt
+      debris.mesh.rotation.z += debris.spin.z * dt
+      if (debris.mesh.position.y < 0.1) {
+        debris.mesh.position.y = 0.1
+        debris.velocity.y = Math.abs(debris.velocity.y) * 0.18
+        debris.velocity.x *= 0.9; debris.velocity.z *= 0.9
       }
-      if (debris.life <= 0) {
-        debris.mesh.removeFromParent()
-        debris.mesh.geometry.dispose()
-        this.debris.splice(i, 1)
-      }
+      if (debris.life < 0.6) debris.mesh.scale.copy(debris.dimensions).multiplyScalar(Math.max(0, debris.life / 0.6))
+      if (debris.life <= 0) { debris.mesh.removeFromParent(); this.debris.splice(i, 1) }
     }
   }
 
   get cameraBlockers() {
-    return this.colliders.filter((collider) => !collider.destroyed).map((collider) => collider.mesh)
+    if (this._cameraDirty) {
+      this._cameraBlockers = this.colliders.filter((c) => !c.destroyed).map((c) => c.mesh)
+      this._cameraDirty = false
+    }
+    return this._cameraBlockers
+  }
+
+  dispose() {
+    if (this._disposed) return
+    this.group.traverse((object) => {
+      if (object.isInstancedMesh) object.dispose()
+      if (object.isLight && object.shadow) object.shadow.dispose()
+    })
+    this.group.removeFromParent()
+    this.furniture.dispose()
+    this.colliders.length = 0; this.breakableWalls.length = 0; this.debris.length = 0
+    this.emergencyLights.length = 0; this._cameraBlockers.length = 0; this._grid.clear()
+    this._disposed = true
   }
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+import { createWorldRifle } from '../combat/GunController.js'
 
 const SEND_INTERVAL = 1 / 15
 
@@ -27,6 +28,10 @@ export class MultiplayerClient {
     this.pendingPlayers = new Map()
     this.chatListeners = new Set()
     this.statusListeners = new Set()
+    this.monsterHealthListeners = new Set()
+    this.monsterHealth = 12000
+    this.monsterMaxHealth = 12000
+    this.monsterAlive = true
     this.reconnectTimer = null
     this.lastStatus = 'CONNECTING'
     this.monster = null
@@ -58,6 +63,7 @@ export class MultiplayerClient {
       this.localName = message.name
       this.monsterHostId = message.monsterHostId
       this.monster?.applyNetworkState(message.monsterState, true)
+      this.emitMonsterHealth(message.monsterHealth, message.monsterMaxHealth)
       for (const player of message.players ?? []) this.addOrQueuePeer(player)
       this.emitStatus('ONLINE')
       return
@@ -85,6 +91,14 @@ export class MultiplayerClient {
       return
     }
     if (message.type === 'monster-state') this.monster?.applyNetworkState(message.state)
+    if (message.type === 'monster-health') this.emitMonsterHealth(message.health, message.maxHealth)
+    if (message.type === 'monster-defeated') this.monsterAlive = false
+    if (message.type === 'monster-reset') {
+      this.monsterAlive = true
+      this.monster?.reset()
+      this.monster?.applyNetworkState(message.state, true)
+      this.emitMonsterHealth(message.health, message.maxHealth)
+    }
   }
 
   attachMonster(monster) {
@@ -93,6 +107,24 @@ export class MultiplayerClient {
 
   get isMonsterHost() {
     return Boolean(this.localId && this.localId === this.monsterHostId)
+  }
+
+  getNearestActiveTarget(monsterPosition) {
+    let nearest = null
+    let nearestDistance = Infinity
+    if (this.localPlayer.spawned && this.localPlayer.isAlive) {
+      nearest = this.localPlayer.root
+      nearestDistance = monsterPosition.distanceToSquared(this.localPlayer.root.position)
+    }
+    for (const peer of this.peers.values()) {
+      if (!peer.root.visible) continue
+      const distance = monsterPosition.distanceToSquared(peer.root.position)
+      if (distance < nearestDistance) {
+        nearest = peer.root
+        nearestDistance = distance
+      }
+    }
+    return nearest
   }
 
   addOrQueuePeer(player) {
@@ -128,6 +160,10 @@ export class MultiplayerClient {
       child.receiveShadow = true
     })
     root.add(model)
+    const rifle = createWorldRifle()
+    rifle.position.set(0.38, 1.18, 0.28)
+    rifle.rotation.set(-0.1, 0, -0.08)
+    root.add(rifle)
     const mixer = new THREE.AnimationMixer(model)
     const actions = new Map()
     for (const [name, localAction] of this.localPlayer.actions) {
@@ -221,6 +257,26 @@ export class MultiplayerClient {
     if (this.socket?.readyState !== WebSocket.OPEN) return false
     this.send({ type: 'chat', room, text })
     return true
+  }
+
+  sendMonsterHit(origin, direction) {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false
+    this.send({ type: 'monster-hit', origin: origin.toArray(), direction: direction.toArray() })
+    return true
+  }
+
+  onMonsterHealth(listener) {
+    this.monsterHealthListeners.add(listener)
+    listener(this.monsterHealth, this.monsterMaxHealth)
+    return () => this.monsterHealthListeners.delete(listener)
+  }
+
+  emitMonsterHealth(health, maxHealth) {
+    if (!Number.isFinite(health) || !Number.isFinite(maxHealth)) return
+    this.monsterHealth = health
+    this.monsterMaxHealth = maxHealth
+    this.monsterAlive = health > 0
+    for (const listener of this.monsterHealthListeners) listener(health, maxHealth)
   }
 
   send(message) {

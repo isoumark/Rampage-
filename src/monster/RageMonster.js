@@ -2,8 +2,8 @@ import * as THREE from 'three'
 
 const CHASE_SPEED = 5.8
 const CHASE_ACCELERATION = 7.5
-const MONSTER_RADIUS = 1.05
-const ATTACK_RANGE = 2.7
+const MONSTER_RADIUS = 0.85
+const ATTACK_RANGE = 2.3
 const ATTACK_DAMAGE = 35
 const ATTACK_COOLDOWN = 1.15
 
@@ -26,6 +26,7 @@ export class RageMonster {
     this.previousPosition = new THREE.Vector3()
     this.targetQuaternion = new THREE.Quaternion()
     this.attackTimer = 0
+    this.localDamageTimer = 0
     this.attackAnimationTimer = 0
     this.smashTimer = 0
     this.walkTime = 0
@@ -47,7 +48,7 @@ export class RageMonster {
       const model = gltf.scene
       const bounds = new THREE.Box3().setFromObject(model)
       const size = bounds.getSize(new THREE.Vector3())
-      const targetHeight = 4.75
+      const targetHeight = 3.75
       model.scale.setScalar(targetHeight / Math.max(size.y, 0.001))
       model.updateMatrixWorld(true)
       const scaledBounds = new THREE.Box3().setFromObject(model)
@@ -144,8 +145,13 @@ export class RageMonster {
     this.setAnimation('run')
   }
 
+  setTarget(target) {
+    if (target) this.target = target
+  }
+
   buildPlaceholder() {
     this.placeholder = new THREE.Group()
+    this.placeholder.scale.setScalar(0.76)
     this.root.add(this.placeholder)
     const skin = new THREE.MeshStandardMaterial({ color: 0x358f3e, roughness: 0.78 })
     const darkSkin = new THREE.MeshStandardMaterial({ color: 0x22602b, roughness: 0.85 })
@@ -247,7 +253,6 @@ export class RageMonster {
       this.attackAnimationTimer = 0.55
       this.setAnimation('attack', true)
       if (this.placeholder.visible) this.rightArm.rotation.x = -2.3
-      this.onAttack(ATTACK_DAMAGE)
     }
   }
 
@@ -268,13 +273,17 @@ export class RageMonster {
 
   updateRemote(deltaTime) {
     this.mixer?.update(deltaTime)
-    this.attackTimer -= deltaTime
     this.root.position.lerp(this.networkPosition, 1 - Math.exp(-14 * deltaTime))
     this.root.quaternion.slerp(this.networkQuaternion, 1 - Math.exp(-14 * deltaTime))
-    if (this.target.position.distanceTo(this.root.position) <= ATTACK_RANGE && this.attackTimer <= 0) {
-      this.attackTimer = ATTACK_COOLDOWN
-      this.onAttack(ATTACK_DAMAGE)
-    }
+    this.officeMap.smashWalls(this.root.position, MONSTER_RADIUS + 1.15)
+  }
+
+  updateLocalDamage(deltaTime, localPlayer) {
+    this.localDamageTimer -= deltaTime
+    if (!localPlayer?.spawned || !localPlayer.isAlive || this.localDamageTimer > 0) return
+    if (localPlayer.root.position.distanceTo(this.root.position) > ATTACK_RANGE) return
+    this.localDamageTimer = ATTACK_COOLDOWN
+    this.onAttack?.(ATTACK_DAMAGE)
   }
 
 }

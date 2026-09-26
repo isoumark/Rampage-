@@ -55,4 +55,9 @@ export class SoundManager {
   hit() {
     this.tone(180, 0.2, 0.38, 'square', 65)
   }
+
+  gunshot() {
+    this.tone(145, 0.09, 0.34, 'square', 42)
+    this.tone(760, 0.035, 0.11, 'sawtooth', 170)
+  }
 }
