@@ -56,7 +56,7 @@ const player = new PlayerController({
   modelLoader: new GLTFLoader(),
   animationLoader: new FBXLoader(),
   modelUrl: '/models/player.glb',
-  modelScale: 100,
+  modelScale: 1,
   animationUrls: {
     walk: '/models/animations/walk.fbx',
     run: '/models/animations/run.fbx',
