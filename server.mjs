@@ -27,6 +27,11 @@ const vite = isProduction
   : await createViteServer({ root, server: { middlewareMode: true, hmr: false }, appType: 'spa' })
 
 function serveProduction(request, response) {
+  if (!existsSync(distRoot)) {
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ service: 'multiplayer', status: 'ok' }))
+    return
+  }
   const urlPath = decodeURIComponent(new URL(request.url, 'http://localhost').pathname)
   const requestedPath = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '')
   let filePath = resolve(distRoot, requestedPath)
