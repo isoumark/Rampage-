@@ -4,28 +4,12 @@ const MAGAZINE_SIZE = 30
 const FIRE_INTERVAL = 0.105
 const RELOAD_DURATION = 1.65
 
-export function createWorldRifle() {
-  const rifle = new THREE.Group()
-  rifle.name = 'TacticalRifle'
-  const dark = new THREE.MeshStandardMaterial({ color: 0x171c20, roughness: 0.45, metalness: 0.68 })
-  const metal = new THREE.MeshStandardMaterial({ color: 0x4b565c, roughness: 0.34, metalness: 0.84 })
-  const add = (size, position, material) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material)
-    mesh.position.set(...position)
-    mesh.castShadow = true
-    rifle.add(mesh)
-  }
-  add([0.13, 0.15, 0.65], [0, 0, -0.1], dark)
-  add([0.09, 0.09, 0.7], [0, 0.02, -0.72], metal)
-  add([0.12, 0.3, 0.18], [0, -0.2, -0.25], dark)
-  add([0.2, 0.2, 0.32], [0, 0, 0.38], dark)
-  return rifle
-}
-
 export class GunController {
-  constructor({ camera, scene, domElement, player, network, onAmmoChanged, onShot }) {
-    this.camera = camera
+  constructor({ loader, modelUrl, camera, scene, domElement, player, network, onAmmoChanged, onShot }) {
+    this.loader = loader
+    this.modelUrl = modelUrl
     this.scene = scene
+    this.camera = camera
     this.domElement = domElement
     this.player = player
     this.network = network
@@ -35,21 +19,31 @@ export class GunController {
     this.reserve = 180
     this.fireCooldown = 0
     this.reloadTimer = 0
+    this.reloadCloseStarted = false
     this.recoil = 0
     this.swayTime = 0
     this.muzzleTimer = 0
+    this.chargeCloseTimer = 0
     this.firing = false
     this.tracers = []
-    this.root = new THREE.Group()
-    this.root.name = 'LocalRifleViewmodel'
-    this.root.position.set(0.72, -0.58, -1.25)
-    this.camera.add(this.root)
-    this.buildRifle()
-    this.worldRifle = createWorldRifle()
-    this.worldRifle.position.set(0.38, 1.18, 0.28)
-    this.worldRifle.rotation.set(-0.1, 0, -0.08)
-    this.player.root.add(this.worldRifle)
-    this.root.visible = false
+    this.weaponMount = new THREE.Group()
+    this.weaponMount.name = 'LocalAssaultRifleMount'
+    this.weaponMount.position.set(0.34, 1.12, 0.2)
+    this.player.root.add(this.weaponMount)
+    this.weaponModel = null
+    this.weaponMixer = null
+    this.weaponActions = new Map()
+    this.loadWeapon()
+
+    this.muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.085, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }),
+    )
+    this.muzzleFlash.position.set(0, 0.03, 1.02)
+    this.weaponMount.add(this.muzzleFlash)
+    this.muzzleLight = new THREE.PointLight(0xffa83d, 0, 4)
+    this.muzzleLight.position.copy(this.muzzleFlash.position)
+    this.weaponMount.add(this.muzzleLight)
 
     this.onMouseDown = (event) => {
       if (event.button !== 0 || document.pointerLockElement !== this.domElement) return
@@ -68,35 +62,45 @@ export class GunController {
     this.emitAmmo()
   }
 
-  buildRifle() {
-    const dark = new THREE.MeshStandardMaterial({ color: 0x171c20, roughness: 0.42, metalness: 0.7 })
-    const metal = new THREE.MeshStandardMaterial({ color: 0x465158, roughness: 0.35, metalness: 0.82 })
-    const accent = new THREE.MeshStandardMaterial({ color: 0x739d45, roughness: 0.58 })
-    const box = (size, position, material, parent = this.root) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material)
-      mesh.position.set(...position)
-      mesh.castShadow = true
-      parent.add(mesh)
-      return mesh
+  async loadWeapon() {
+    try {
+      const gltf = await this.loader.loadAsync(this.modelUrl)
+      const model = gltf.scene
+      model.name = 'StandardAssaultRifle'
+      model.traverse((child) => {
+        if (!child.isMesh) return
+        child.castShadow = true
+        child.receiveShadow = true
+      })
+      const bounds = new THREE.Box3().setFromObject(model)
+      const size = bounds.getSize(new THREE.Vector3())
+      const scale = 0.9 / Math.max(size.z, size.x, 0.001)
+      model.scale.setScalar(scale)
+      model.updateMatrixWorld(true)
+      const scaledBounds = new THREE.Box3().setFromObject(model)
+      const center = scaledBounds.getCenter(new THREE.Vector3())
+      model.position.sub(center)
+      model.position.z += 0.05
+      this.weaponMount.add(model)
+      this.weaponModel = model
+      this.weaponMixer = new THREE.AnimationMixer(model)
+      for (const clip of gltf.animations) this.weaponActions.set(clip.name.toLowerCase(), this.weaponMixer.clipAction(clip))
+      this.network.setWeaponTemplate(model)
+      console.info(`[Gun] Loaded CC0 Standard Assault Rifle. Animations: ${gltf.animations.map((clip) => clip.name).join(', ')}`)
+    } catch (error) {
+      console.warn('[Gun] Assault rifle model failed to load. Shooting remains available without a weapon mesh.', error)
     }
-    box([0.18, 0.2, 0.8], [0, 0, -0.18], dark)
-    box([0.14, 0.14, 0.82], [0, 0.02, -0.92], metal)
-    box([0.24, 0.11, 0.32], [0, 0.14, -0.22], accent)
-    box([0.15, 0.38, 0.22], [0, -0.25, -0.16], dark).rotation.x = -0.25
-    this.magazine = box([0.16, 0.42, 0.24], [0, -0.27, -0.46], metal)
-    box([0.28, 0.28, 0.42], [0, -0.01, 0.42], dark)
-    this.muzzle = new THREE.Object3D()
-    this.muzzle.position.set(0, 0.02, -1.38)
-    this.root.add(this.muzzle)
-    this.flash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.13, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }),
-    )
-    this.flash.position.copy(this.muzzle.position)
-    this.root.add(this.flash)
-    this.flashLight = new THREE.PointLight(0xffa83d, 0, 5)
-    this.flashLight.position.copy(this.muzzle.position)
-    this.root.add(this.flashLight)
+  }
+
+  playWeaponClip(name, timeScale = 1) {
+    const action = this.weaponActions.get(name)
+    if (!action) return
+    action.reset()
+    action.enabled = true
+    action.clampWhenFinished = true
+    action.setLoop(THREE.LoopOnce, 1)
+    action.setEffectiveTimeScale(timeScale)
+    action.play()
   }
 
   fire() {
@@ -111,6 +115,8 @@ export class GunController {
     this.muzzleTimer = 0.055
     this.emitAmmo()
     this.onShot?.()
+    this.playWeaponClip('charge-open', 7)
+    this.chargeCloseTimer = 0.055
 
     const cameraOrigin = new THREE.Vector3()
     const cameraDirection = new THREE.Vector3()
@@ -134,6 +140,8 @@ export class GunController {
   reload() {
     if (this.reloadTimer > 0 || this.ammo >= MAGAZINE_SIZE || this.reserve <= 0) return
     this.reloadTimer = RELOAD_DURATION
+    this.reloadCloseStarted = false
+    this.playWeaponClip('magazine-open', 1.15)
     this.emitAmmo()
   }
 
@@ -149,33 +157,38 @@ export class GunController {
   }
 
   update(deltaTime) {
-    this.root.visible = this.player.spawned && this.player.isAlive
+    this.weaponMixer?.update(deltaTime)
+    this.weaponMount.visible = this.player.spawned && this.player.isAlive
     this.fireCooldown = Math.max(0, this.fireCooldown - deltaTime)
+    if (this.chargeCloseTimer > 0) {
+      this.chargeCloseTimer -= deltaTime
+      if (this.chargeCloseTimer <= 0) this.playWeaponClip('charge-close', 8)
+    }
     if (this.firing) this.fire()
     this.swayTime += deltaTime
-    this.recoil = THREE.MathUtils.damp(this.recoil, 0, 15, deltaTime)
+    this.recoil = THREE.MathUtils.damp(this.recoil, 0, 16, deltaTime)
     this.muzzleTimer = Math.max(0, this.muzzleTimer - deltaTime)
-    this.flash.material.opacity = this.muzzleTimer > 0 ? 1 : 0
-    this.flash.scale.setScalar(0.7 + Math.random() * 0.8)
-    this.flashLight.intensity = this.muzzleTimer > 0 ? 3.5 : 0
+    this.muzzleFlash.material.opacity = this.muzzleTimer > 0 ? 1 : 0
+    this.muzzleFlash.scale.setScalar(0.7 + Math.random() * 0.7)
+    this.muzzleLight.intensity = this.muzzleTimer > 0 ? 3.4 : 0
 
     const movement = Math.min(1, this.player.currentSpeed / 7)
-    this.root.position.x = 0.72 + Math.sin(this.swayTime * 8) * 0.012 * movement
-    this.root.position.y = -0.58 + Math.abs(Math.cos(this.swayTime * 8)) * 0.012 * movement - this.recoil * 0.035
-    this.root.rotation.x = this.recoil * 0.1
-    this.root.rotation.z = Math.sin(this.swayTime * 4) * 0.008 * movement
-    this.worldRifle.rotation.x = -0.1 + this.recoil * 0.14
+    this.weaponMount.position.x = 0.34 + Math.sin(this.swayTime * 8) * 0.012 * movement
+    this.weaponMount.position.y = 1.12 + Math.abs(Math.cos(this.swayTime * 8)) * 0.01 * movement
+    this.weaponMount.rotation.x = -0.06 + this.recoil * 0.11
+    this.weaponMount.rotation.z = -0.05 + Math.sin(this.swayTime * 4) * 0.01 * movement
 
     if (this.reloadTimer > 0) {
       const previous = this.reloadTimer
       this.reloadTimer = Math.max(0, this.reloadTimer - deltaTime)
       const progress = 1 - this.reloadTimer / RELOAD_DURATION
-      this.root.rotation.z += Math.sin(progress * Math.PI) * 0.55
-      this.root.position.y -= Math.sin(progress * Math.PI) * 0.22
-      this.magazine.position.y = -0.27 - Math.sin(progress * Math.PI) * 0.35
+      this.weaponMount.rotation.z -= Math.sin(progress * Math.PI) * 0.38
+      this.weaponMount.position.y -= Math.sin(progress * Math.PI) * 0.12
+      if (!this.reloadCloseStarted && progress > 0.55) {
+        this.reloadCloseStarted = true
+        this.playWeaponClip('magazine-close', 1.2)
+      }
       if (previous > 0 && this.reloadTimer === 0) this.finishReload()
-    } else {
-      this.magazine.position.y = -0.27
     }
 
     for (let i = this.tracers.length - 1; i >= 0; i -= 1) {
@@ -201,7 +214,7 @@ export class GunController {
       tracer.line.material.dispose()
       tracer.line.removeFromParent()
     }
-    this.root.removeFromParent()
-    this.worldRifle.removeFromParent()
+    this.weaponMixer?.stopAllAction()
+    this.weaponMount.removeFromParent()
   }
 }

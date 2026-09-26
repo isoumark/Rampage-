@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
-import { createWorldRifle } from '../combat/GunController.js'
+import { applyWeaponHoldPose } from '../combat/WeaponPose.js'
 
 const SEND_INTERVAL = 1 / 15
 
@@ -32,6 +32,7 @@ export class MultiplayerClient {
     this.monsterHealth = 12000
     this.monsterMaxHealth = 12000
     this.monsterAlive = true
+    this.weaponTemplate = null
     this.reconnectTimer = null
     this.lastStatus = 'CONNECTING'
     this.monster = null
@@ -160,10 +161,7 @@ export class MultiplayerClient {
       child.receiveShadow = true
     })
     root.add(model)
-    const rifle = createWorldRifle()
-    rifle.position.set(0.38, 1.18, 0.28)
-    rifle.rotation.set(-0.1, 0, -0.08)
-    root.add(rifle)
+    this.attachWeaponToPeer(root)
     const mixer = new THREE.AnimationMixer(model)
     const actions = new Map()
     for (const [name, localAction] of this.localPlayer.actions) {
@@ -231,9 +229,26 @@ export class MultiplayerClient {
     peer.activeAction = action
   }
 
+  setWeaponTemplate(template) {
+    this.weaponTemplate = template
+    for (const peer of this.peers.values()) this.attachWeaponToPeer(peer.root)
+  }
+
+  attachWeaponToPeer(root) {
+    root.getObjectByName('RemoteAssaultRifleMount')?.removeFromParent()
+    if (!this.weaponTemplate) return
+    const mount = new THREE.Group()
+    mount.name = 'RemoteAssaultRifleMount'
+    mount.position.set(0.34, 1.12, 0.2)
+    mount.rotation.set(-0.06, 0, -0.05)
+    mount.add(this.weaponTemplate.clone(true))
+    root.add(mount)
+  }
+
   update(deltaTime) {
     for (const peer of this.peers.values()) {
       peer.mixer.update(deltaTime)
+      applyWeaponHoldPose(peer.root, 0.86)
       peer.root.position.lerp(peer.targetPosition, 1 - Math.exp(-14 * deltaTime))
       peer.root.quaternion.slerp(peer.targetQuaternion, 1 - Math.exp(-14 * deltaTime))
     }

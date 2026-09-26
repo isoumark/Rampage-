@@ -102,6 +102,8 @@ multiplayer.attachMonster(monster)
 multiplayer.onMonsterHealth((health, maxHealth) => hud.setMonsterHealth(health, maxHealth))
 
 const gun = new GunController({
+  loader: new GLTFLoader(),
+  modelUrl: '/models/weapons/assault-rifle.glb',
   camera,
   scene,
   domElement: renderer.domElement,

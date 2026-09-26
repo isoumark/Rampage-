@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { InputController } from './InputController.js'
 import { retargetAnimation } from './retargetAnimation.js'
+import { applyWeaponHoldPose } from '../combat/WeaponPose.js'
 
 const WALK_SPEED = 3.5
 const RUN_SPEED = 7
@@ -178,6 +179,7 @@ export class PlayerController {
 
   update(deltaTime, cameraYaw) {
     this.mixer?.update(deltaTime)
+    if (this.model) applyWeaponHoldPose(this.model, 0.86)
     if (!this.loaded || !this.spawned) return
 
     this.invulnerability = Math.max(0, this.invulnerability - deltaTime)
