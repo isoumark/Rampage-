@@ -38,6 +38,11 @@ function serveProduction(request, response) {
 }
 
 const server = http.createServer((request, response) => {
+  if (request.url === '/health') {
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ status: 'ok', players: clients.size }))
+    return
+  }
   if (vite) vite.middlewares(request, response, () => {})
   else serveProduction(request, response)
 })

@@ -3,6 +3,13 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 
 const SEND_INTERVAL = 1 / 15
 
+function getMultiplayerUrl() {
+  const configuredUrl = import.meta.env.VITE_MULTIPLAYER_URL?.trim()
+  if (configuredUrl) return configuredUrl.replace(/\/$/, '')
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${location.host}`
+}
+
 export class MultiplayerClient {
   constructor({ scene, localPlayer }) {
     this.scene = scene
@@ -24,8 +31,7 @@ export class MultiplayerClient {
 
   connect() {
     if (this.disposed) return
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    this.socket = new WebSocket(`${protocol}//${location.host}/multiplayer`)
+    this.socket = new WebSocket(`${getMultiplayerUrl()}/multiplayer`)
     this.socket.addEventListener('open', () => this.emitStatus('ONLINE'))
     this.socket.addEventListener('message', (event) => this.receive(JSON.parse(event.data)))
     this.socket.addEventListener('close', () => {
